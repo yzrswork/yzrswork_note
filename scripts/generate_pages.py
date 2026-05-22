@@ -49,6 +49,7 @@ def build_context(work):
         "SUBTITLE_JP": work.get("title_jp", ""),
         "YEAR": work.get("year", "2026"),
         "ID": work.get("id", ""),
+        "SIZE_SHORT": work.get("size_short", ""),
         "PHOTO_HTML": render_photo(work),
         "TYPE": work.get("type", ""),
         "RARITY": work.get("rarity", ""),
