@@ -85,9 +85,25 @@ body {
 }
 
 @media print {
-  body { padding: 0; background: white; }
-  .page { box-shadow: none !important; width: 148mm; }
   @page { size: A5 portrait; margin: 0; }
+  html, body { margin: 0; padding: 0; width: 148mm; height: 210mm; }
+  body { background: white; }
+  .page {
+    box-shadow: none !important;
+    width: 148mm;
+    max-width: 148mm;
+    height: 210mm;
+    max-height: 210mm;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  .page > * {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
 }
 
 /* ── PAGE ── */
