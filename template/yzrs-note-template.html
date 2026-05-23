@@ -321,8 +321,11 @@ body {
   color: var(--bar-fg);
   opacity: .85;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 .stars-val .dim { opacity: .3; }
+/* DIFFICULTY側を縮ませない（TYPE値が長い作品で★が見切れるのを防ぐ） */
+.status-bar .status-item:last-of-type { flex-shrink: 0; }
 
 /* ── BODY (2-column) ── */
 .body {
