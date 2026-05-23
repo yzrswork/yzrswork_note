@@ -85,9 +85,25 @@ body {
 }
 
 @media print {
-  body { padding: 0; background: white; }
-  .page { box-shadow: none !important; width: 148mm; }
   @page { size: A5 portrait; margin: 0; }
+  html, body { margin: 0; padding: 0; width: 148mm; height: 210mm; }
+  body { background: white; }
+  .page {
+    box-shadow: none !important;
+    width: 148mm;
+    max-width: 148mm;
+    height: 210mm;
+    max-height: 210mm;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  .page > * {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
 }
 
 /* ── PAGE ── */
@@ -263,7 +279,7 @@ body {
   color: var(--bar-rule);
   font-family: var(--f-mono);
   font-size: 13px;
-  padding: 0 12px;
+  padding: 0 4px;
   line-height: 1;
 }
 
@@ -287,7 +303,7 @@ body {
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--bar-soft);
-  padding: 0 3px;
+  padding: 0 1px;
 }
 .s-val {
   font-family: var(--f-jp);
@@ -507,7 +523,7 @@ body {
     <div class="header-meta">
       <div class="meta-year">{{SUBTITLE_JP}} / PRODUCED IN {{YEAR}}</div>
       <div class="meta-sn">
-        <span class="sn-text">SN {{ID}} / 127×178mm</span>
+        <span class="sn-text">SN {{ID}} / {{SIZE_SHORT}}</span>
         <div class="barcode"></div>
       </div>
     </div>
