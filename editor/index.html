@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>YZRS NOTE — Editor</title>
+<link rel="stylesheet" href="/editor/editor.css">
+</head>
+<body>
+
+<header class="toolbar">
+  <div class="tb-group">
+    <label class="tb-label">作品</label>
+    <select id="card-select" class="tb-select"></select>
+    <span id="dirty-flag" class="tb-flag" hidden>● 未保存</span>
+  </div>
+  <div class="tb-group">
+    <button id="btn-save" class="tb-btn">保存</button>
+    <button id="btn-rebuild" class="tb-btn">Rebuild</button>
+    <button id="btn-reset-field" class="tb-btn tb-btn-light" title="選択中フィールドの override を削除">フィールドReset</button>
+    <button id="btn-reset-all" class="tb-btn tb-btn-light" title="この作品の override を完全削除">全Reset</button>
+    <button id="btn-preview" class="tb-btn tb-btn-light" title="編集UIの輪郭をOFF">プレビュー</button>
+  </div>
+  <div class="tb-group">
+    <span id="status-msg" class="tb-status"></span>
+  </div>
+</header>
+
+<main class="workspace">
+  <section class="canvas-wrap">
+    <iframe id="card-frame" title="card preview"></iframe>
+  </section>
+  <aside class="inspector" id="inspector">
+    <div class="ins-empty">要素をクリックして編集</div>
+  </aside>
+</main>
+
+<!-- 画像クロップ・モーダル（4:3固定） -->
+<div id="crop-modal" class="modal" hidden>
+  <div class="modal-box">
+    <header class="modal-head">
+      <span>画像をクロップ（4:3 固定）</span>
+      <button id="crop-close" class="modal-x">×</button>
+    </header>
+    <div class="crop-stage" id="crop-stage">
+      <canvas id="crop-canvas"></canvas>
+      <div id="crop-rect">
+        <div class="crop-handle" data-corner="nw"></div>
+        <div class="crop-handle" data-corner="ne"></div>
+        <div class="crop-handle" data-corner="sw"></div>
+        <div class="crop-handle" data-corner="se"></div>
+      </div>
+    </div>
+    <footer class="modal-foot">
+      <button id="crop-cancel" class="tb-btn tb-btn-light">キャンセル</button>
+      <button id="crop-confirm" class="tb-btn">確定してアップロード</button>
+    </footer>
+  </div>
+</div>
+
+<script src="/editor/editor.js"></script>
+</body>
+</html>
