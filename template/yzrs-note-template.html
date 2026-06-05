@@ -524,7 +524,7 @@ body {
   <!-- HEADER -->
   <div class="header">
     <span class="logo">YZRS NOTE</span>
-    <div class="header-title-jp">{{TITLE_EN}} — e-photoframe series</div>
+    <div class="header-title-jp" {{HEADER_TITLE_JP_STYLE}}>{{TITLE_EN}} — e-photoframe series</div>
     <div class="header-title-en">FINAL WORK DOCUMENT / e-photoframe series</div>
     <div class="header-meta">
       <div class="meta-year">{{SUBTITLE_JP}} / PRODUCED IN {{YEAR}}</div>
@@ -551,26 +551,26 @@ body {
       <span class="s-key">TYPE</span>
       <span class="s-ruby-inline">タイプ</span>
       <span class="s-colon">:</span>
-      <span class="s-val">{{TYPE}}</span>
+      <span class="s-val" {{S_VAL_STYLE}}>{{TYPE}}</span>
     </div>
     <span class="status-pipe">|</span>
     <div class="status-item">
       <span class="s-key">RARITY</span>
       <span class="s-ruby-inline">レアリティ</span>
       <span class="s-colon">:</span>
-      <span class="s-val">{{RARITY}}</span>
+      <span class="s-val" {{S_VAL_STYLE}}>{{RARITY}}</span>
     </div>
     <span class="status-pipe">|</span>
     <div class="status-item">
       <span class="s-key">DIFFICULTY</span>
       <span class="s-ruby-inline">難易度</span>
       <span class="s-colon">:</span>
-      <span class="stars-val">{{DIFFICULTY}}</span>
+      <span class="stars-val" {{STARS_VAL_STYLE}}>{{DIFFICULTY}}</span>
     </div>
   </div>
 
   <!-- BODY -->
-  <div class="body">
+  <div class="body" {{BODY_STYLE}}>
 
     <div class="col-left">
       <div>
@@ -578,14 +578,14 @@ body {
           <span class="sec-title">CONCEPT</span>
           <span class="sec-ruby">コンセプト</span>
         </div>
-        <div class="concept-text">{{CONCEPT}}</div>
+        <div class="concept-text" {{CONCEPT_STYLE}}>{{CONCEPT}}</div>
       </div>
       <div class="memo-section">
         <div class="sec-header">
           <span class="sec-title">PRODUCTION MEMO</span>
           <span class="sec-ruby">制作メモ</span>
         </div>
-        <div class="memo-text">{{MEMO}}</div>
+        <div class="memo-text" {{MEMO_STYLE}}>{{MEMO}}</div>
       </div>
     </div>
 
@@ -601,37 +601,37 @@ body {
           <span class="spec-key">SIZE</span>
           <span class="spec-key-ruby">サイズ</span>
           <span class="spec-colon">:</span>
-          <span class="spec-val">{{SIZE}}</span>
+          <span class="spec-val" {{SPEC_VAL_STYLE}}>{{SIZE}}</span>
         </div>
         <div class="spec-item">
           <span class="spec-key">MOUNT</span>
           <span class="spec-key-ruby">設置</span>
           <span class="spec-colon">:</span>
-          <span class="spec-val">{{MOUNT}}</span>
+          <span class="spec-val" {{SPEC_VAL_STYLE}}>{{MOUNT}}</span>
         </div>
         <div class="spec-item">
           <span class="spec-key">POWER</span>
           <span class="spec-key-ruby">電源</span>
           <span class="spec-colon">:</span>
-          <span class="spec-val">{{POWER}}</span>
+          <span class="spec-val" {{SPEC_VAL_STYLE}}>{{POWER}}</span>
         </div>
         <div class="spec-item">
           <span class="spec-key">MCU</span>
           <span class="spec-key-ruby">制御</span>
           <span class="spec-colon">:</span>
-          <span class="spec-val">{{MCU}}</span>
+          <span class="spec-val" {{SPEC_VAL_STYLE}}>{{MCU}}</span>
         </div>
         <div class="spec-item">
           <span class="spec-key">PARTS</span>
           <span class="spec-key-ruby">部品</span>
           <span class="spec-colon">:</span>
-          <span class="spec-val">{{PARTS}}</span>
+          <span class="spec-val" {{SPEC_VAL_STYLE}}>{{PARTS}}</span>
         </div>
         <div class="spec-item">
           <span class="spec-key">WIRE</span>
           <span class="spec-key-ruby">配線</span>
           <span class="spec-colon">:</span>
-          <span class="spec-val">{{WIRE}}</span>
+          <span class="spec-val" {{SPEC_VAL_STYLE}}>{{WIRE}}</span>
         </div>
       </div>
     </div>
