@@ -29,10 +29,17 @@
 
   // A5 縦長: 横148mm × 縦210mm。画面上の .page 幅から目標高さを逆算して判定。
   function pageOverflows(doc) {
-    const page = doc.querySelector('.page');
-    if (!page) return false;
+    return pageMetrics(doc).overflow;
+  }
+
+  // Auto-Fit などが共用する read-only 計測。要素キャッシュは持たない。
+  function pageMetrics(doc) {
+    doc = doc || (window.YZRS.iframe && window.YZRS.iframe.contentDocument);
+    const page = doc && doc.querySelector('.page');
+    if (!page) return { ok: false, overflow: false, excess: 0 };
     const targetH = page.clientWidth * (210 / 148);
-    return (page.scrollHeight - targetH > 1);
+    const excess = page.scrollHeight - targetH;
+    return { ok: true, overflow: excess > 1, excess: excess, scrollH: page.scrollHeight, targetH: targetH };
   }
 
   function check() {
@@ -87,5 +94,5 @@
   window.YZRS.onChange(schedule);
   window.addEventListener('resize', schedule);
 
-  window.YZRS.overflow = { check, schedule };
+  window.YZRS.overflow = { check, schedule, pageMetrics };
 })();

@@ -27,6 +27,7 @@
     <button id="btn-reset-field" class="tb-btn tb-btn-light" title="選択中フィールドの override を削除">フィールドReset</button>
     <button id="btn-reset-all" class="tb-btn tb-btn-light" title="この作品の override を完全削除">全Reset</button>
     <button id="btn-preview" class="tb-btn tb-btn-light" title="編集UIの輪郭をOFF">プレビュー</button>
+    <button id="btn-autofit" class="tb-btn tb-btn-light" title="A5に収まるよう本文を段階的に縮小（font→行間→余白→列比）">Auto-Fit Page</button>
   </div>
   <div class="tb-group">
     <label class="tb-check" title="A5 印刷ガイド（SAFE / CUT / BLEED）">
@@ -87,6 +88,7 @@
 <script src="/editor/overflow.js"></script>
 <script src="/editor/locks.js"></script>
 <script src="/editor/heatmap.js"></script>
+<script src="/editor/autofit.js"></script>
 <script>
   // ツールバーの Undo/Redo ボタン（ショートカットは history.js が担当）
   (function () {

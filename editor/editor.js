@@ -35,6 +35,8 @@ function canonicalOverride(ov) {
   const out = {};
   if (ov.text && Object.keys(ov.text).length) out.text = ov.text;
   if (ov.font_size && Object.keys(ov.font_size).length) out.font_size = ov.font_size;
+  if (ov.line_height && Object.keys(ov.line_height).length) out.line_height = ov.line_height;
+  if (ov.spacing && ov.spacing.scale != null) out.spacing = ov.spacing;
   if (ov.layout && Object.keys(ov.layout).length) out.layout = ov.layout;
   if (Array.isArray(ov.stars)) out.stars = ov.stars;
   if (ov.photo) out.photo = ov.photo;
@@ -108,6 +110,17 @@ function setFontSizeOverride(cssClass, px) {
   ensureOverride();
   state.override.font_size ||= {};
   state.override.font_size[cssClass] = px;
+  markDirty();
+}
+function setLineHeightOverride(cssClass, lh) {
+  ensureOverride();
+  state.override.line_height ||= {};
+  state.override.line_height[cssClass] = lh;
+  markDirty();
+}
+function setSpacingOverride(scale) {
+  ensureOverride();
+  state.override.spacing = { scale: scale };
   markDirty();
 }
 function setLayoutOverride(left, right) {
@@ -379,6 +392,26 @@ function applyFontSizeToClass(cssClass, px) {
   const doc = iframe.contentDocument;
   doc.querySelectorAll('.' + cssClass).forEach(el => {
     el.style.fontSize = px + 'px';
+  });
+}
+// Auto-Fit 用: 行間／余白をインラインで適用（null で解除＝stylesheet 既定に戻す）
+function applyLineHeightToClass(cssClass, lh) {
+  const doc = iframe.contentDocument;
+  doc.querySelectorAll('.' + cssClass).forEach(el => {
+    el.style.lineHeight = (lh == null ? '' : String(lh));
+  });
+}
+function applySpacing(scale) {
+  const doc = iframe.contentDocument;
+  doc.querySelectorAll('.col-left, .col-right').forEach(el => {
+    if (scale == null) {
+      el.style.gap = '';
+      el.style.padding = '';
+    } else {
+      const s = Number(scale);
+      el.style.gap = (20 * s) + 'px';
+      el.style.padding = (22 * s) + 'px 24px ' + (26 * s) + 'px';
+    }
   });
 }
 
@@ -826,6 +859,27 @@ function applyOverrideToDom(doc) {
     });
   });
 
+  // line-height（override に無いクラスはインラインを解除）
+  const lh = state.override.line_height || {};
+  FS_CLASSES.forEach((cls) => {
+    doc.querySelectorAll('.' + cls).forEach((el) => {
+      el.style.lineHeight = (lh[cls] !== undefined) ? String(lh[cls]) : '';
+    });
+  });
+
+  // spacing（カラムの gap / padding。無ければ解除）
+  const sp = state.override.spacing;
+  doc.querySelectorAll('.col-left, .col-right').forEach((el) => {
+    if (sp && sp.scale != null) {
+      const s = Number(sp.scale);
+      el.style.gap = (20 * s) + 'px';
+      el.style.padding = (22 * s) + 'px 24px ' + (26 * s) + 'px';
+    } else {
+      el.style.gap = '';
+      el.style.padding = '';
+    }
+  });
+
   // layout
   const body = doc.querySelector('.body');
   if (body) {
@@ -863,6 +917,23 @@ if (window.YZRS) {
   window.YZRS.setFontSize = (cssClass, px) => {
     applyFontSizeToClass(cssClass, px);
     setFontSizeOverride(cssClass, px);
+  };
+  // Auto-Fit（autofit.js）が使う apply-only / write 系ヘルパ
+  window.YZRS.applyFontSizeToClass = applyFontSizeToClass;
+  window.YZRS.applyLineHeightToClass = applyLineHeightToClass;
+  window.YZRS.applySpacing = applySpacing;
+  window.YZRS.applyLayout = applyLayout;
+  window.YZRS.setLineHeight = (cssClass, lh) => {
+    applyLineHeightToClass(cssClass, lh);
+    setLineHeightOverride(cssClass, lh);
+  };
+  window.YZRS.setSpacing = (scale) => {
+    applySpacing(scale);
+    setSpacingOverride(scale);
+  };
+  window.YZRS.setLayout = (left, right) => {
+    applyLayout(left, right);
+    setLayoutOverride(left, right);
   };
   // field 名（data-editor-field の末尾）→ iframe 内要素。locks / heatmap が共用。
   window.YZRS.fieldToElements = (doc, field) => {
