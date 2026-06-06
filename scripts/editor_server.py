@@ -160,6 +160,7 @@ def api_card_save(work_id):
         and not (payload.get("layout") or {})
         and not isinstance(payload.get("stars"), list)
         and not payload.get("photo")
+        and not (payload.get("locks") or {})
     )
     out_path = OVERRIDES_DIR / f"{work_id}.json"
     if is_empty:

@@ -16,8 +16,39 @@ const state = {
   merged: null,      // サーバから返る合成値（初期表示の参照）
   selection: null,   // {kind, field, idx, el}
   dirty: false,
+  savedHash: '',     // 最後に保存/読込した override の決定論的ハッシュ
   previewMode: false,
 };
+
+// ─── 決定論的シリアライズ（dirty 判定用） ─────────────────
+// sparse override のみを対象に、キー順非依存で安定文字列化する。
+function stableStringify(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort()
+    .map((k) => JSON.stringify(k) + ':' + stableStringify(v[k]))
+    .join(',') + '}';
+}
+// 保存される sparse スライスだけを取り出す（id / schema_version / 空コンテナは除外）
+function canonicalOverride(ov) {
+  ov = ov || {};
+  const out = {};
+  if (ov.text && Object.keys(ov.text).length) out.text = ov.text;
+  if (ov.font_size && Object.keys(ov.font_size).length) out.font_size = ov.font_size;
+  if (ov.layout && Object.keys(ov.layout).length) out.layout = ov.layout;
+  if (Array.isArray(ov.stars)) out.stars = ov.stars;
+  if (ov.photo) out.photo = ov.photo;
+  if (ov.locks && Object.keys(ov.locks).length) out.locks = ov.locks;
+  return out;
+}
+function currentOverrideHash() {
+  return stableStringify(canonicalOverride(state.override));
+}
+
+// ヘッダタイトルの接尾辞を一元化（Auto-Fit 等での重複ロジックを防ぐ）
+function formatHeaderTitle(title) {
+  return `${title} — e-photoframe series`;
+}
 
 // ─── DOM ──────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -48,11 +79,15 @@ function setStatus(msg) {
   if (msg) setTimeout(() => { if (statusMsg.textContent === msg) statusMsg.textContent = ''; }, 3000);
 }
 function markDirty() {
-  state.dirty = true;
-  dirtyFlag.hidden = false;
+  // 現在の override が最後に保存した状態と一致すれば dirty=false
+  // （undo で baseline に戻ったときに「未保存」が残らない）
+  state.dirty = (currentOverrideHash() !== state.savedHash);
+  dirtyFlag.hidden = !state.dirty;
   if (window.YZRS) window.YZRS._onChange();
 }
 function clearDirty() {
+  // 「現在 = 保存済み」を確定。以後の dirty 判定の基準になる。
+  state.savedHash = currentOverrideHash();
   state.dirty = false;
   dirtyFlag.hidden = true;
 }
@@ -251,13 +286,16 @@ function renderInspectorEmpty() {
 
 function renderInspector() {
   const sel = state.selection;
-  if (!sel) return renderInspectorEmpty();
+  if (!sel) { renderInspectorEmpty(); return; }
   inspector.innerHTML = '';
 
-  if (sel.kind === 'text') return renderInspectorText(sel);
-  if (sel.kind === 'stars') return renderInspectorStars();
-  if (sel.kind === 'photo') return renderInspectorPhoto();
-  if (sel.kind === 'layout') return renderInspectorLayout();
+  if (sel.kind === 'text') renderInspectorText(sel);
+  else if (sel.kind === 'stars') renderInspectorStars();
+  else if (sel.kind === 'photo') renderInspectorPhoto();
+  else if (sel.kind === 'layout') renderInspectorLayout();
+
+  // 機能モジュール（locks 等）へ「Inspector を描画した」と通知
+  if (window.YZRS) window.YZRS._onInspectorRender(sel);
 }
 
 // テキスト編集 + font-size
@@ -292,7 +330,7 @@ function renderInspectorText(sel) {
     } else {
       // header-title-jp は " — e-photoframe series" 部分を保ちつつ先頭テキストを差替え
       if (field === 'title_en' && cssClass === 'header-title-jp') {
-        sel.el.textContent = `${input.value} — e-photoframe series`;
+        sel.el.textContent = formatHeaderTitle(input.value);
       } else {
         sel.el.textContent = input.value;
       }
@@ -374,6 +412,7 @@ function currentStars() {
 }
 
 function toggleStar(idx) {
+  if (window.YZRS && window.YZRS.isLocked('stars')) { setStatus('🔒 stars はロック中'); return; }
   const arr = currentStars();
   arr[idx] = !arr[idx];
   setStarsOverride(arr);
@@ -464,6 +503,7 @@ function setupColDividerDrag(doc) {
   if (!divider || !body) return;
   let dragging = false;
   divider.addEventListener('mousedown', (e) => {
+    if (window.YZRS && window.YZRS.isLocked('layout')) return;
     e.preventDefault();
     dragging = true;
     doc.body.style.userSelect = 'none';
@@ -764,7 +804,7 @@ function applyOverrideToDom(doc) {
 
   // テキスト系
   const titleEl = doc.querySelector('.header-title-jp');
-  if (titleEl) titleEl.textContent = `${effectiveText('title_en')} — e-photoframe series`;
+  if (titleEl) titleEl.textContent = formatHeaderTitle(effectiveText('title_en'));
   const svals = doc.querySelectorAll('.s-val');
   if (svals[0]) svals[0].textContent = effectiveText('type');
   if (svals[1]) svals[1].textContent = effectiveText('rarity');
@@ -823,6 +863,12 @@ if (window.YZRS) {
   window.YZRS.setFontSize = (cssClass, px) => {
     applyFontSizeToClass(cssClass, px);
     setFontSizeOverride(cssClass, px);
+  };
+  // field 名（data-editor-field の末尾）→ iframe 内要素。locks / heatmap が共用。
+  window.YZRS.fieldToElements = (doc, field) => {
+    doc = doc || iframe.contentDocument;
+    if (!doc || !field) return [];
+    return Array.from(doc.querySelectorAll(`[data-editor-field$=":${field}"]`));
   };
   window.YZRS.clearSelection = () => {
     state.selection = null;

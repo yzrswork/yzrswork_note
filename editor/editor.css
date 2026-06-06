@@ -286,3 +286,13 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 .guide-cut > .guide-label   { color: #ff8a80; }
 .guide-safe > .guide-label  { color: #9ff5bd; }
 .guide-bleed > .guide-label { color: #9fd0ff; }
+
+/* Task5: Lock System（Inspector内UI） */
+.lock-section .lock-btn { width: 100%; }
+.lock-btn.locked {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-2);
+}
+.is-locked-ctrl { opacity: .45; cursor: not-allowed; }
+.is-locked-ctrl:disabled { cursor: not-allowed; }

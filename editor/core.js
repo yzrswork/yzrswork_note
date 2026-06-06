@@ -11,6 +11,7 @@ window.YZRS = (function () {
   const changeHooks = [];
   const cardSwitchHooks = [];
   const iframeLoadHooks = [];
+  const inspectorRenderHooks = [];
 
   function run(list, arg) {
     for (const fn of list) {
@@ -23,9 +24,10 @@ window.YZRS = (function () {
     state: null,
     iframe: null,
 
-    // ロック状態（Task6 用に予約。core4 では未使用でも害なし）
-    locks: { layout: false, photo: false, typography: false },
-    isLocked(kind) { return !!hub.locks[kind]; },
+    // フィールド単位ロック。実体は locks.js (Task5) が差し込む。
+    // 未ロード時は常に false（Core1-4 のガードを壊さない）。
+    isLocked() { return false; },
+    toggleLock() { /* installed by locks.js */ },
 
     // history 適用中フラグ（再記録ループ防止）
     _applyingHistory: false,
@@ -34,11 +36,13 @@ window.YZRS = (function () {
     onChange(fn) { changeHooks.push(fn); },
     onCardSwitch(fn) { cardSwitchHooks.push(fn); },
     onIframeLoad(fn) { iframeLoadHooks.push(fn); },
+    onInspectorRender(fn) { inspectorRenderHooks.push(fn); },
 
     // editor.js から発火 ─────────────────────
     _onChange() { run(changeHooks); },
     _onCardSwitch(id) { run(cardSwitchHooks, id); },
     _onIframeLoad(doc) { run(iframeLoadHooks, doc); },
+    _onInspectorRender(sel) { run(inspectorRenderHooks, sel); },
 
     // editor.js が実体を差し込む（モジュールから呼ぶ）─
     applyOverrideToDom: null, // (doc?) => void
@@ -46,6 +50,7 @@ window.YZRS = (function () {
     showDirty: null,          // () => void
     switchCard: null,         // (id) => Promise
     setFontSize: null,        // (cssClass, px) => void
+    fieldToElements: null,    // (doc, field) => Element[]
   };
 
   return hub;
