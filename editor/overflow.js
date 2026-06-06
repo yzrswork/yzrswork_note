@@ -16,9 +16,10 @@
     const st = doc.createElement('style');
     st.id = '__overflow_css__';
     // 仕様: outline: 2px solid red;（offset を内側にしてカード端でも見えるように）
+    // 視覚優先度: locked > overflow。ロック中の要素ではアウトラインを譲る。
     st.textContent =
-      '.__overflow__{outline:2px solid red !important;outline-offset:-1px;}' +
-      '.__page_overflow__{outline:2px dashed red !important;outline-offset:-2px;}';
+      '.__overflow__:not(.__locked__){outline:2px solid red !important;outline-offset:-1px;}' +
+      '.__page_overflow__:not(.__locked__){outline:2px dashed red !important;outline-offset:-2px;}';
     doc.head.appendChild(st);
   }
 

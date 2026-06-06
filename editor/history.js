@@ -5,14 +5,20 @@
  * - 入力連打は debounce(350ms) でまとめ、1ステップ=1スナップショット
  * - 復元時は editor.js の applyOverrideToDom で iframe に反映（リロードしない）
  *
+ * 編集保護状態（locks）は「コンテンツ状態」ではないため履歴の対象外。
+ * スナップショットからは locks を除外し、undo/redo 適用時は「現在のロック」を
+ * そのまま温存する（＝undo はコンテンツ/レイアウト編集のみを巻き戻す）。
+ * locks 自体の永続化は sparse override の save/load が引き続き担当する。
+ *
  * ショートカット:
  *   Windows: Ctrl+Z / Ctrl+Y    Mac: Cmd+Z / Shift+Cmd+Z
  */
 (function () {
   const MAX = 50;
+  const NON_HISTORICAL = ['locks']; // 履歴に含めない override スライス（編集保護状態）
   let undoStack = [];
   let redoStack = [];
-  let present = null;      // 確定済みの現在スナップショット
+  let present = null;      // 確定済みの現在スナップショット（locks 除外）
   let timer = null;
 
   function clone(o) {
@@ -21,9 +27,16 @@
   }
   function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
+  // locks 等の非履歴スライスを除いたディープコピー
+  function historical(ov) {
+    const c = clone(ov || {});
+    for (const k of NON_HISTORICAL) delete c[k];
+    return c;
+  }
+
   function commitPending() {
-    const cur = clone((window.YZRS.state && window.YZRS.state.override) || {});
-    if (present !== null && eq(cur, present)) return;
+    const cur = historical((window.YZRS.state && window.YZRS.state.override) || {});
+    if (present !== null && eq(cur, present)) return; // locks だけの変更はここで no-op
     if (present !== null) {
       undoStack.push(present);
       if (undoStack.length > MAX) undoStack.shift();
@@ -42,16 +55,21 @@
     clearTimeout(timer); timer = null;
     undoStack = [];
     redoStack = [];
-    present = clone((window.YZRS.state && window.YZRS.state.override) || {});
+    present = historical((window.YZRS.state && window.YZRS.state.override) || {});
   }
 
   function apply(target) {
     window.YZRS._applyingHistory = true;
-    window.YZRS.state.override = clone(target);
+    // 現在のロックを温存し、コンテンツ/レイアウトだけを target に巻き戻す
+    const live = window.YZRS.state.override || {};
+    const liveLocks = live.locks;
+    const next = clone(target); // target は履歴スナップショット（locks 無し）
+    if (liveLocks && Object.keys(liveLocks).length) next.locks = liveLocks;
+    window.YZRS.state.override = next;
     if (window.YZRS.applyOverrideToDom) window.YZRS.applyOverrideToDom();
     if (window.YZRS.clearSelection) window.YZRS.clearSelection();
     if (window.YZRS.showDirty) window.YZRS.showDirty();
-    window.YZRS._onChange(); // overflow 等を再計算（history は flag で記録スキップ）
+    window.YZRS._onChange(); // overflow / 可視化を再計算（history は flag で記録スキップ）
     window.YZRS._applyingHistory = false;
   }
 

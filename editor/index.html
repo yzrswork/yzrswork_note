@@ -32,6 +32,9 @@
     <label class="tb-check" title="A5 印刷ガイド（SAFE / CUT / BLEED）">
       <input type="checkbox" id="toggle-guides"> Print Guides
     </label>
+    <label class="tb-check" title="override の位置を色分け表示（text=赤 / layout=青 / font=黄 / locked=灰）">
+      <input type="checkbox" id="toggle-heatmap"> Show Overrides
+    </label>
   </div>
   <div class="tb-group">
     <span id="overflow-warnings" class="overflow-warnings"></span>
@@ -83,6 +86,7 @@
 <script src="/editor/guides.js"></script>
 <script src="/editor/overflow.js"></script>
 <script src="/editor/locks.js"></script>
+<script src="/editor/heatmap.js"></script>
 <script>
   // ツールバーの Undo/Redo ボタン（ショートカットは history.js が担当）
   (function () {
