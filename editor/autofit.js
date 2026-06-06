@@ -4,20 +4,24 @@
  * 信号は page-level overflow（authoritative）。明示的なボタン操作でのみ走り、
  * 1クリック=1回の有限・同期パスで完了する。
  *
- * 調整ラダー（決定的な順序。各段の後にページ判定し、収まり次第その段で確定）:
- *   1. font-size 縮小   （10px 下限 / 二分探索 0.5px）
- *   2. line-height 圧縮 （1.30 下限 / 二分探索 0.05）
- *   3. spacing 圧縮     （scale 0.6 下限 / 二分探索 0.02、layout ロック時は不可）
- *   4. layout 再配分    （高い側の列を広げる / 有界線形 0.05、layout ロック時は不可）
+ * 調整ラダー（保守的・固定順序。各段の後にページ判定し、収まり次第その段で確定）:
+ *   Stage 1: line-height 圧縮 （1.30 下限 / 二分探索 0.05）  ← 最も目立たない調整から
+ *   Stage 2: spacing 圧縮     （scale 0.60 下限 / 二分探索 0.02、layout ロック時は不可）
+ *   Stage 3: font-size 縮小   （10px 下限 / 二分探索 0.5px）  ← タイポグラフィ縮小は最後
+ *   Stage 4: 警告状態のみ      （収まらない場合。レイアウト再配分などはしない）
+ *
+ * 「予測可能性 > 仕上がり」。font-size を最初に攻めない。layout 自動再配分はしない。
  *
  * 厳守:
- *   - テキスト改変／省略記号／DOM 構造変更は一切しない（font-size / line-height /
- *     gap・padding / 列比のみ）。
+ *   - baseline data / template 構造 / ユーザ文言は一切変更しない
+ *     （projection レイヤの font-size / line-height / gap・padding のみ）。
+ *   - DOM を状態の真実にしない。iframe は使い捨て projection のまま。
+ *   - 同一入力 → 同一出力（二分探索、確率的挙動・隠れたリトライ・学習なし）。
  *   - rAF/Observer/連続ループ/再帰なし。各段は有界同期ループ（≤約8計測）。
+ *   - 安全下限（font 10px / line-height 1.30 / spacing 0.60）で可読性を割らない。
  *   - 書き込みは sparse override のみ。複数 setter は同 tick で1スナップショット
  *     （= 1回の undo で全体が戻る）。未調整クラスは applyOverrideToDom で正規化。
- *   - ロックされたフィールドは不変（対象から除外）。
- *   - 失敗は可視（警告チップ）。決して黙って無視しない。
+ *   - ロックされたフィールドは不変（対象から除外）。fit 不能は可視警告（黙殺しない）。
  */
 (function () {
   const TEXT_TARGETS = ['concept-text', 'memo-text', 'spec-val'];
@@ -27,10 +31,9 @@
     'spec-val': ['size', 'mount', 'power', 'mcu', 'parts', 'wire'],
   };
   const LH_BASE = { 'concept-text': 1.95, 'memo-text': 1.85, 'spec-val': 1.45 };
-  const FONT_MIN = 10;
-  const LH_FLOOR = 1.30;
-  const SPACING_MIN = 0.60;
-  const LAYOUT_SHIFT_MAX = 0.40;
+  const FONT_MIN = 10;     // 安全下限: これ未満には縮小しない（可読性）
+  const LH_FLOOR = 1.30;   // 安全下限
+  const SPACING_MIN = 0.60; // 安全下限（カラム gap/padding スケール）
   const PROBE_GUARD = 24;
 
   const r2 = (v) => Math.round(v * 100) / 100;
@@ -77,15 +80,6 @@
     return Math.ceil(hi / res) * res;
   }
 
-  function tallerColumn() {
-    const l = doc().querySelector('.col-left');
-    const r = doc().querySelector('.col-right');
-    if (!l || !r) return null;
-    const dl = l.scrollHeight, dr = r.scrollHeight;
-    if (Math.abs(dl - dr) < 2) return null;
-    return dl > dr ? 'left' : 'right';
-  }
-
   function warn(msg) {
     const host = document.getElementById('overflow-warnings');
     if (host) {
@@ -96,12 +90,11 @@
     }
   }
 
-  // applied: { font:{cls:px}, lh:{cls:n}, spacing:scale|null, layout:{left_fr,right_fr}|null }
+  // applied: { font:{cls:px}, lh:{cls:n}, spacing:scale|null }
   function finalize(applied, stageLabel, failed) {
-    Object.keys(applied.font).forEach((c) => window.YZRS.setFontSize(c, applied.font[c]));
     Object.keys(applied.lh).forEach((c) => window.YZRS.setLineHeight(c, applied.lh[c]));
     if (applied.spacing != null) window.YZRS.setSpacing(applied.spacing);
-    if (applied.layout != null) window.YZRS.setLayout(applied.layout.left_fr, applied.layout.right_fr);
+    Object.keys(applied.font).forEach((c) => window.YZRS.setFontSize(c, applied.font[c]));
     // DOM を sparse override に正規化（計測で残ったインラインを除去）
     if (window.YZRS.applyOverrideToDom) window.YZRS.applyOverrideToDom();
     if (window.YZRS.overflow) window.YZRS.overflow.schedule();
@@ -119,11 +112,11 @@
   }
 
   /**
+   * 保守的ラダー: line-height → spacing → font → 警告（固定順）。
    * @param {string[]} classes  対象テキストクラス
-   * @param {boolean} allowSpacing  spacing 段を許可
-   * @param {boolean} allowLayout   layout 段を許可
+   * @param {boolean} allowSpacing  spacing 段を許可（ページ全体のみ true）
    */
-  function autoFit(classes, allowSpacing, allowLayout) {
+  function autoFit(classes, allowSpacing) {
     if (!doc()) return;
     if (!pageOverflow()) { setStatusSafe('Auto-Fit: 既に収まっています'); return; }
 
@@ -131,25 +124,9 @@
     const layoutLocked = window.YZRS.isLocked('layout');
     const baseFont = {}, baseLH = {};
     adj.forEach((c) => { baseFont[c] = effFont(c); baseLH[c] = effLH(c); });
-    const applied = { font: {}, lh: {}, spacing: null, layout: null };
+    const applied = { font: {}, lh: {}, spacing: null };
 
-    // ── Stage 1: font ──
-    if (adj.length) {
-      const maxDelta = Math.max(0, ...adj.map((c) => baseFont[c] - FONT_MIN));
-      if (maxDelta > 0) {
-        const d = searchMonotonic(maxDelta, 0.5,
-          (delta) => adj.forEach((c) => window.YZRS.applyFontSizeToClass(c, Math.max(FONT_MIN, baseFont[c] - delta))));
-        const use = (d == null) ? maxDelta : d;
-        adj.forEach((c) => {
-          const v = Math.max(FONT_MIN, baseFont[c] - use);
-          window.YZRS.applyFontSizeToClass(c, v);
-          if (v < baseFont[c]) applied.font[c] = v;
-        });
-        if (d != null && !pageOverflow()) return finalize(applied, 'font');
-      }
-    }
-
-    // ── Stage 2: line-height ──
+    // ── Stage 1: line-height（最も目立たない調整から）──
     if (adj.length) {
       const maxLHd = Math.max(0, ...adj.map((c) => baseLH[c] - LH_FLOOR));
       if (maxLHd > 0) {
@@ -165,7 +142,7 @@
       }
     }
 
-    // ── Stage 3: spacing ──（layout ロック時はスキップ）
+    // ── Stage 2: spacing（layout ロック時はカラム幾何を保護してスキップ）──
     if (allowSpacing && !layoutLocked) {
       const maxP = 1 - SPACING_MIN; // 0.40
       const d = searchMonotonic(maxP, 0.02, (p) => window.YZRS.applySpacing(r2(1 - p)));
@@ -176,36 +153,32 @@
       if (d != null && !pageOverflow()) return finalize(applied, 'spacing');
     }
 
-    // ── Stage 4: layout 再配分 ──（非単調なので有界線形スキャン）
-    if (allowLayout && !layoutLocked) {
-      const taller = tallerColumn();
-      if (taller) {
-        let best = null;
-        for (let shift = 0.05; shift <= LAYOUT_SHIFT_MAX + 1e-9; shift += 0.05) {
-          const l = taller === 'left' ? 1 + shift : 1 - shift;
-          const r = taller === 'left' ? 1 - shift : 1 + shift;
-          window.YZRS.applyLayout(l, r);
-          const m = metrics();
-          if (!m.overflow) { applied.layout = { left_fr: r2(l), right_fr: r2(r) }; return finalize(applied, 'layout'); }
-          if (best == null || m.excess < best.excess) best = { excess: m.excess, l: l, r: r };
-        }
-        if (best) {
-          window.YZRS.applyLayout(best.l, best.r);
-          applied.layout = { left_fr: r2(best.l), right_fr: r2(best.r) };
-        }
+    // ── Stage 3: font-size（タイポグラフィ縮小は最後・最小限）──
+    if (adj.length) {
+      const maxDelta = Math.max(0, ...adj.map((c) => baseFont[c] - FONT_MIN));
+      if (maxDelta > 0) {
+        const d = searchMonotonic(maxDelta, 0.5,
+          (delta) => adj.forEach((c) => window.YZRS.applyFontSizeToClass(c, Math.max(FONT_MIN, baseFont[c] - delta))));
+        const use = (d == null) ? maxDelta : d;
+        adj.forEach((c) => {
+          const v = Math.max(FONT_MIN, baseFont[c] - use);
+          window.YZRS.applyFontSizeToClass(c, v);
+          if (v < baseFont[c]) applied.font[c] = v;
+        });
+        if (d != null && !pageOverflow()) return finalize(applied, 'font');
       }
     }
 
-    // ── 失敗（best-effort 適用済み）──
+    // ── Stage 4: 警告状態のみ（best-effort は適用済み。layout 再配分はしない）──
     finalize(applied, null, true);
   }
 
   function autoFitPage() {
-    autoFit(TEXT_TARGETS, true, true);
+    autoFit(TEXT_TARGETS, true);
   }
   function autoFitField(cssClass) {
     if (!CLASS_FIELDS[cssClass]) return;     // 本文テキスト系のみ
-    autoFit([cssClass], false, false);       // 単一クラス: font + line-height のみ
+    autoFit([cssClass], false);              // 単一クラス: line-height → font（spacing なし）
   }
 
   window.YZRS.autofit = { page: autoFitPage, field: autoFitField };

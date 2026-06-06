@@ -206,8 +206,13 @@ iframe.addEventListener('load', () => {
   const style = doc.createElement('style');
   style.id = '__editor_overlay__';
   style.textContent = `
-    [data-editor-field]:hover { outline: 1px dashed #b5451b; outline-offset: 1px; }
-    .editor-selected { outline: 2px solid #b5451b !important; outline-offset: 1px; }
+    [data-editor-field]:hover:not(.__locked__) { outline: 1px dashed #b5451b; outline-offset: 1px; }
+    /* 視覚優先度（global）: locked > overflow > heatmap > selected。
+       selected の outline は locked / overflow に必ず譲る（注入順に依存しないよう :not で確定）。
+       heatmap は background / inset box-shadow チャネルなので outline とは競合しない。 */
+    .editor-selected:not(.__locked__):not(.__overflow__):not(.__page_overflow__) {
+      outline: 2px solid #b5451b !important; outline-offset: 1px;
+    }
     [data-star-idx] { cursor: pointer; }
     .col-divider { cursor: col-resize; }
   `;
@@ -825,11 +830,16 @@ $('#crop-confirm').addEventListener('click', async () => {
 function textToBr(s) {
   return String(s).split('\n').map(escapeHtml).join('<br>');
 }
+// フィールドの baseline 値（override 不在時にレンダされる値）。
+// Task8 クリーンアップの「override === baseline」判定もこれを唯一の真実として使う。
+function baselineText(field) {
+  if (field === 'parts') return (state.data.parts || []).join(', ');
+  return state.data[field] != null ? state.data[field] : '';
+}
 function effectiveText(field) {
   const t = state.override.text || {};
   if (field in t) return t[field];
-  if (field === 'parts') return (state.data.parts || []).join(', ');
-  return state.data[field] != null ? state.data[field] : '';
+  return baselineText(field);
 }
 function applyOverrideToDom(doc) {
   doc = doc || iframe.contentDocument;
@@ -947,6 +957,9 @@ if (window.YZRS) {
     const d = iframe.contentDocument;
     if (d) d.querySelectorAll('.editor-selected').forEach((n) => n.classList.remove('editor-selected'));
   };
+  // Task8 cleanup（cleanup.js）が baseline 比較に使う唯一の真実 + UI ヘルパ
+  window.YZRS.baselineText = baselineText;
+  window.YZRS.setStatus = setStatus;
 }
 
 // ─── 起動 ───────────────────────────────────────
