@@ -157,9 +157,12 @@ def api_card_save(work_id):
     is_empty = (
         not (payload.get("text") or {})
         and not (payload.get("font_size") or {})
+        and not (payload.get("line_height") or {})
+        and not (payload.get("spacing") or {})
         and not (payload.get("layout") or {})
         and not isinstance(payload.get("stars"), list)
         and not payload.get("photo")
+        and not (payload.get("locks") or {})
     )
     out_path = OVERRIDES_DIR / f"{work_id}.json"
     if is_empty:

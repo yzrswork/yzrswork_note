@@ -16,8 +16,41 @@ const state = {
   merged: null,      // サーバから返る合成値（初期表示の参照）
   selection: null,   // {kind, field, idx, el}
   dirty: false,
+  savedHash: '',     // 最後に保存/読込した override の決定論的ハッシュ
   previewMode: false,
 };
+
+// ─── 決定論的シリアライズ（dirty 判定用） ─────────────────
+// sparse override のみを対象に、キー順非依存で安定文字列化する。
+function stableStringify(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort()
+    .map((k) => JSON.stringify(k) + ':' + stableStringify(v[k]))
+    .join(',') + '}';
+}
+// 保存される sparse スライスだけを取り出す（id / schema_version / 空コンテナは除外）
+function canonicalOverride(ov) {
+  ov = ov || {};
+  const out = {};
+  if (ov.text && Object.keys(ov.text).length) out.text = ov.text;
+  if (ov.font_size && Object.keys(ov.font_size).length) out.font_size = ov.font_size;
+  if (ov.line_height && Object.keys(ov.line_height).length) out.line_height = ov.line_height;
+  if (ov.spacing && ov.spacing.scale != null) out.spacing = ov.spacing;
+  if (ov.layout && Object.keys(ov.layout).length) out.layout = ov.layout;
+  if (Array.isArray(ov.stars)) out.stars = ov.stars;
+  if (ov.photo) out.photo = ov.photo;
+  if (ov.locks && Object.keys(ov.locks).length) out.locks = ov.locks;
+  return out;
+}
+function currentOverrideHash() {
+  return stableStringify(canonicalOverride(state.override));
+}
+
+// ヘッダタイトルの接尾辞を一元化（Auto-Fit 等での重複ロジックを防ぐ）
+function formatHeaderTitle(title) {
+  return `${title} — e-photoframe series`;
+}
 
 // ─── DOM ──────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -48,10 +81,15 @@ function setStatus(msg) {
   if (msg) setTimeout(() => { if (statusMsg.textContent === msg) statusMsg.textContent = ''; }, 3000);
 }
 function markDirty() {
-  state.dirty = true;
-  dirtyFlag.hidden = false;
+  // 現在の override が最後に保存した状態と一致すれば dirty=false
+  // （undo で baseline に戻ったときに「未保存」が残らない）
+  state.dirty = (currentOverrideHash() !== state.savedHash);
+  dirtyFlag.hidden = !state.dirty;
+  if (window.YZRS) window.YZRS._onChange();
 }
 function clearDirty() {
+  // 「現在 = 保存済み」を確定。以後の dirty 判定の基準になる。
+  state.savedHash = currentOverrideHash();
   state.dirty = false;
   dirtyFlag.hidden = true;
 }
@@ -72,6 +110,17 @@ function setFontSizeOverride(cssClass, px) {
   ensureOverride();
   state.override.font_size ||= {};
   state.override.font_size[cssClass] = px;
+  markDirty();
+}
+function setLineHeightOverride(cssClass, lh) {
+  ensureOverride();
+  state.override.line_height ||= {};
+  state.override.line_height[cssClass] = lh;
+  markDirty();
+}
+function setSpacingOverride(scale) {
+  ensureOverride();
+  state.override.spacing = { scale: scale };
   markDirty();
 }
 function setLayoutOverride(left, right) {
@@ -118,7 +167,15 @@ async function loadCardList() {
     opt.textContent = `${c.id} — ${c.title_en}${c.has_override ? ' ●' : ''}`;
     cardSelect.appendChild(opt);
   }
-  if (state.cards.length) await switchCard(state.cards[0].id);
+  if (state.cards.length) {
+    let startId = state.cards[0].id;
+    const sess = window.YZRS && window.YZRS.session;
+    if (sess) {
+      const restored = sess.restoreStartCard(state.cards);
+      if (restored) startId = restored;
+    }
+    await switchCard(startId);
+  }
 }
 
 async function switchCard(id) {
@@ -135,6 +192,7 @@ async function switchCard(id) {
   renderInspectorEmpty();
   iframe.src = `/output/yzrs-note-${id}-${state.data.title_en}.html?v=${Date.now()}`;
   cardSelect.value = id;
+  if (window.YZRS) window.YZRS._onCardSwitch(id);
 }
 
 cardSelect.addEventListener('change', (e) => switchCard(e.target.value));
@@ -148,8 +206,13 @@ iframe.addEventListener('load', () => {
   const style = doc.createElement('style');
   style.id = '__editor_overlay__';
   style.textContent = `
-    [data-editor-field]:hover { outline: 1px dashed #b5451b; outline-offset: 1px; }
-    .editor-selected { outline: 2px solid #b5451b !important; outline-offset: 1px; }
+    [data-editor-field]:hover:not(.__locked__) { outline: 1px dashed #b5451b; outline-offset: 1px; }
+    /* 視覚優先度（global）: locked > overflow > heatmap > selected。
+       selected の outline は locked / overflow に必ず譲る（注入順に依存しないよう :not で確定）。
+       heatmap は background / inset box-shadow チャネルなので outline とは競合しない。 */
+    .editor-selected:not(.__locked__):not(.__overflow__):not(.__page_overflow__) {
+      outline: 2px solid #b5451b !important; outline-offset: 1px;
+    }
     [data-star-idx] { cursor: pointer; }
     .col-divider { cursor: col-resize; }
   `;
@@ -193,14 +256,15 @@ iframe.addEventListener('load', () => {
 
   // プレビューモード適用
   applyPreviewMode();
+
+  // 機能モジュール（guides / overflow / heatmap…）へ通知
+  if (window.YZRS) window.YZRS._onIframeLoad(doc);
 });
 
 function wrapStars(host) {
   // 既存：★★★<span class="dim">★★</span> または既に個別 span 形式
   // 一旦 dom を平坦化して 5個の <span data-star-idx="N"> に書き直す
-  const arr = (state.override.stars && state.override.stars.length === 5)
-    ? state.override.stars
-    : state.merged.stars;
+  const arr = currentStars();
   host.innerHTML = arr.map((on, i) =>
     `<span data-star-idx="${i}" class="${on ? '' : 'dim'}">★</span>`
   ).join('');
@@ -240,13 +304,16 @@ function renderInspectorEmpty() {
 
 function renderInspector() {
   const sel = state.selection;
-  if (!sel) return renderInspectorEmpty();
+  if (!sel) { renderInspectorEmpty(); return; }
   inspector.innerHTML = '';
 
-  if (sel.kind === 'text') return renderInspectorText(sel);
-  if (sel.kind === 'stars') return renderInspectorStars();
-  if (sel.kind === 'photo') return renderInspectorPhoto();
-  if (sel.kind === 'layout') return renderInspectorLayout();
+  if (sel.kind === 'text') renderInspectorText(sel);
+  else if (sel.kind === 'stars') renderInspectorStars();
+  else if (sel.kind === 'photo') renderInspectorPhoto();
+  else if (sel.kind === 'layout') renderInspectorLayout();
+
+  // 機能モジュール（locks 等）へ「Inspector を描画した」と通知
+  if (window.YZRS) window.YZRS._onInspectorRender(sel);
 }
 
 // テキスト編集 + font-size
@@ -281,7 +348,7 @@ function renderInspectorText(sel) {
     } else {
       // header-title-jp は " — e-photoframe series" 部分を保ちつつ先頭テキストを差替え
       if (field === 'title_en' && cssClass === 'header-title-jp') {
-        sel.el.textContent = `${input.value} — e-photoframe series`;
+        sel.el.textContent = formatHeaderTitle(input.value);
       } else {
         sel.el.textContent = input.value;
       }
@@ -332,6 +399,26 @@ function applyFontSizeToClass(cssClass, px) {
     el.style.fontSize = px + 'px';
   });
 }
+// Auto-Fit 用: 行間／余白をインラインで適用（null で解除＝stylesheet 既定に戻す）
+function applyLineHeightToClass(cssClass, lh) {
+  const doc = iframe.contentDocument;
+  doc.querySelectorAll('.' + cssClass).forEach(el => {
+    el.style.lineHeight = (lh == null ? '' : String(lh));
+  });
+}
+function applySpacing(scale) {
+  const doc = iframe.contentDocument;
+  doc.querySelectorAll('.col-left, .col-right').forEach(el => {
+    if (scale == null) {
+      el.style.gap = '';
+      el.style.padding = '';
+    } else {
+      const s = Number(scale);
+      el.style.gap = (20 * s) + 'px';
+      el.style.padding = (22 * s) + 'px 24px ' + (26 * s) + 'px';
+    }
+  });
+}
 
 // ★ Inspector
 function renderInspectorStars() {
@@ -357,10 +444,13 @@ function renderInspectorStars() {
 
 function currentStars() {
   if (state.override.stars && state.override.stars.length === 5) return state.override.stars.slice();
-  return state.merged.stars.slice();
+  // override が無ければ data の difficulty から再構成（undo で baseline に戻せるように）
+  const n = Math.max(0, Math.min(5, parseInt(state.data && state.data.difficulty, 10) || 0));
+  return [true, true, true, true, true].map((_, i) => i < n);
 }
 
 function toggleStar(idx) {
+  if (window.YZRS && window.YZRS.isLocked('stars')) { setStatus('🔒 stars はロック中'); return; }
   const arr = currentStars();
   arr[idx] = !arr[idx];
   setStarsOverride(arr);
@@ -451,6 +541,7 @@ function setupColDividerDrag(doc) {
   if (!divider || !body) return;
   let dragging = false;
   divider.addEventListener('mousedown', (e) => {
+    if (window.YZRS && window.YZRS.isLocked('layout')) return;
     e.preventDefault();
     dragging = true;
     doc.body.style.userSelect = 'none';
@@ -732,6 +823,144 @@ $('#crop-confirm').addEventListener('click', async () => {
     setStatus('アップロード失敗');
   }
 });
+
+// ─── override → iframe DOM 再適用（undo/redo 用） ─────────
+// 保存値ではなく in-memory の state.override を「最後にrebuildされたDOM」へ
+// 重ねて反映する。override が無いフィールドは data のベース値に戻す。
+function textToBr(s) {
+  return String(s).split('\n').map(escapeHtml).join('<br>');
+}
+// フィールドの baseline 値（override 不在時にレンダされる値）。
+// Task8 クリーンアップの「override === baseline」判定もこれを唯一の真実として使う。
+function baselineText(field) {
+  if (field === 'parts') return (state.data.parts || []).join(', ');
+  return state.data[field] != null ? state.data[field] : '';
+}
+function effectiveText(field) {
+  const t = state.override.text || {};
+  if (field in t) return t[field];
+  return baselineText(field);
+}
+function applyOverrideToDom(doc) {
+  doc = doc || iframe.contentDocument;
+  if (!doc || !doc.body) return;
+
+  // テキスト系
+  const titleEl = doc.querySelector('.header-title-jp');
+  if (titleEl) titleEl.textContent = formatHeaderTitle(effectiveText('title_en'));
+  const svals = doc.querySelectorAll('.s-val');
+  if (svals[0]) svals[0].textContent = effectiveText('type');
+  if (svals[1]) svals[1].textContent = effectiveText('rarity');
+  const concept = doc.querySelector('.concept-text');
+  if (concept) concept.innerHTML = textToBr(effectiveText('concept_jp'));
+  const memo = doc.querySelector('.memo-text');
+  if (memo) memo.innerHTML = textToBr(effectiveText('memo'));
+  const SPEC = ['size', 'mount', 'power', 'mcu', 'parts', 'wire'];
+  doc.querySelectorAll('.spec-val').forEach((el, i) => {
+    if (SPEC[i]) el.textContent = effectiveText(SPEC[i]);
+  });
+
+  // font-size（override に無いクラスはインラインを解除）
+  const FS_CLASSES = ['header-title-jp', 'concept-text', 'memo-text', 'spec-val', 's-val', 'stars-val'];
+  const fs = state.override.font_size || {};
+  FS_CLASSES.forEach((cls) => {
+    doc.querySelectorAll('.' + cls).forEach((el) => {
+      el.style.fontSize = (fs[cls] !== undefined) ? (fs[cls] + 'px') : '';
+    });
+  });
+
+  // line-height（override に無いクラスはインラインを解除）
+  const lh = state.override.line_height || {};
+  FS_CLASSES.forEach((cls) => {
+    doc.querySelectorAll('.' + cls).forEach((el) => {
+      el.style.lineHeight = (lh[cls] !== undefined) ? String(lh[cls]) : '';
+    });
+  });
+
+  // spacing（カラムの gap / padding。無ければ解除）
+  const sp = state.override.spacing;
+  doc.querySelectorAll('.col-left, .col-right').forEach((el) => {
+    if (sp && sp.scale != null) {
+      const s = Number(sp.scale);
+      el.style.gap = (20 * s) + 'px';
+      el.style.padding = (22 * s) + 'px 24px ' + (26 * s) + 'px';
+    } else {
+      el.style.gap = '';
+      el.style.padding = '';
+    }
+  });
+
+  // layout
+  const body = doc.querySelector('.body');
+  if (body) {
+    const L = state.override.layout;
+    body.style.gridTemplateColumns = L ? `${L.left_fr}fr 1px ${L.right_fr}fr` : '';
+  }
+
+  // stars
+  const host = doc.querySelector('.stars-val');
+  if (host) wrapStars(host);
+
+  // photo
+  const box = doc.querySelector('.visual-box');
+  if (box) {
+    const p = state.override.photo;
+    const file = (p && p.file) ? p.file : (state.data.photo || null);
+    if (file) {
+      const fit = (p && p.object_fit) || 'cover';
+      const pos = (p && p.object_position) || '50% 50%';
+      box.innerHTML = `<img src="/photos/${file}" style="object-fit:${fit};object-position:${pos}" alt="">`;
+    } else {
+      box.innerHTML = '<span class="photo-placeholder">PHOTO HERE</span>';
+    }
+    box.setAttribute('data-editor-field', 'photo:photo');
+  }
+}
+
+// ─── YZRS ハブへ実体を登録（モジュール連携） ──────────────
+if (window.YZRS) {
+  window.YZRS.state = state;
+  window.YZRS.iframe = iframe;
+  window.YZRS.switchCard = switchCard;
+  window.YZRS.applyOverrideToDom = applyOverrideToDom;
+  window.YZRS.showDirty = markDirty;
+  window.YZRS.setFontSize = (cssClass, px) => {
+    applyFontSizeToClass(cssClass, px);
+    setFontSizeOverride(cssClass, px);
+  };
+  // Auto-Fit（autofit.js）が使う apply-only / write 系ヘルパ
+  window.YZRS.applyFontSizeToClass = applyFontSizeToClass;
+  window.YZRS.applyLineHeightToClass = applyLineHeightToClass;
+  window.YZRS.applySpacing = applySpacing;
+  window.YZRS.applyLayout = applyLayout;
+  window.YZRS.setLineHeight = (cssClass, lh) => {
+    applyLineHeightToClass(cssClass, lh);
+    setLineHeightOverride(cssClass, lh);
+  };
+  window.YZRS.setSpacing = (scale) => {
+    applySpacing(scale);
+    setSpacingOverride(scale);
+  };
+  window.YZRS.setLayout = (left, right) => {
+    applyLayout(left, right);
+    setLayoutOverride(left, right);
+  };
+  // field 名（data-editor-field の末尾）→ iframe 内要素。locks / heatmap が共用。
+  window.YZRS.fieldToElements = (doc, field) => {
+    doc = doc || iframe.contentDocument;
+    if (!doc || !field) return [];
+    return Array.from(doc.querySelectorAll(`[data-editor-field$=":${field}"]`));
+  };
+  window.YZRS.clearSelection = () => {
+    state.selection = null;
+    renderInspectorEmpty();
+    const d = iframe.contentDocument;
+    if (d) d.querySelectorAll('.editor-selected').forEach((n) => n.classList.remove('editor-selected'));
+  };
+  // Task8 cleanup（cleanup.js）が baseline 比較に使う唯一の真実 + UI ヘルパ
+  window.YZRS.baselineText = baselineText;
+  window.YZRS.setStatus = setStatus;
+}
 
 // ─── 起動 ───────────────────────────────────────
 loadCardList().catch(e => setStatus('起動失敗: ' + e.message));

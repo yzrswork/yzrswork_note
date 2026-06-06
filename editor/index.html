@@ -13,21 +13,44 @@
     <select id="card-select" class="tb-select"></select>
     <span id="dirty-flag" class="tb-flag" hidden>● 未保存</span>
   </div>
+  <div class="tb-group tb-recent">
+    <label class="tb-label">Recent</label>
+    <div id="recent-list" class="recent-list"></div>
+  </div>
+  <div class="tb-group">
+    <button id="btn-undo" class="tb-btn tb-btn-light" title="元に戻す (Ctrl+Z)">↶ Undo</button>
+    <button id="btn-redo" class="tb-btn tb-btn-light" title="やり直し (Ctrl+Y)">↷ Redo</button>
+  </div>
   <div class="tb-group">
     <button id="btn-save" class="tb-btn">保存</button>
     <button id="btn-rebuild" class="tb-btn">Rebuild</button>
     <button id="btn-reset-field" class="tb-btn tb-btn-light" title="選択中フィールドの override を削除">フィールドReset</button>
     <button id="btn-reset-all" class="tb-btn tb-btn-light" title="この作品の override を完全削除">全Reset</button>
     <button id="btn-preview" class="tb-btn tb-btn-light" title="編集UIの輪郭をOFF">プレビュー</button>
+    <button id="btn-autofit" class="tb-btn tb-btn-light" title="A5に収まるよう本文を段階的に縮小（行間→余白→font）">Auto-Fit Page</button>
+    <button id="btn-cleanup" class="tb-btn tb-btn-light" title="baselineと同一の冗長overrideを削除（undo可・保存で確定）">Cleanup</button>
   </div>
   <div class="tb-group">
+    <label class="tb-check" title="A5 印刷ガイド（SAFE / CUT / BLEED）">
+      <input type="checkbox" id="toggle-guides"> Print Guides
+    </label>
+    <label class="tb-check" title="override の位置を色分け表示（text=赤 / layout=青 / font=黄 / locked=灰）">
+      <input type="checkbox" id="toggle-heatmap"> Show Overrides
+    </label>
+  </div>
+  <div class="tb-group">
+    <span id="overflow-warnings" class="overflow-warnings"></span>
     <span id="status-msg" class="tb-status"></span>
   </div>
 </header>
 
 <main class="workspace">
   <section class="canvas-wrap">
-    <iframe id="card-frame" title="card preview"></iframe>
+    <div class="frame-stage">
+      <iframe id="card-frame" title="card preview"></iframe>
+      <!-- editor 専用オーバーレイ層（印刷ガイド）。出力HTMLには一切含まれない -->
+      <div id="editor-overlay-layer" class="editor-overlay-layer" style="display:none"></div>
+    </div>
   </section>
   <aside class="inspector" id="inspector">
     <div class="ins-empty">要素をクリックして編集</div>
@@ -57,6 +80,25 @@
   </div>
 </div>
 
+<!-- core ハブ → editor 本体 → 機能モジュール（この順序が前提） -->
+<script src="/editor/core.js"></script>
 <script src="/editor/editor.js"></script>
+<script src="/editor/storage.js"></script>
+<script src="/editor/history.js"></script>
+<script src="/editor/guides.js"></script>
+<script src="/editor/overflow.js"></script>
+<script src="/editor/locks.js"></script>
+<script src="/editor/heatmap.js"></script>
+<script src="/editor/autofit.js"></script>
+<script src="/editor/cleanup.js"></script>
+<script>
+  // ツールバーの Undo/Redo ボタン（ショートカットは history.js が担当）
+  (function () {
+    var u = document.getElementById('btn-undo');
+    var r = document.getElementById('btn-redo');
+    if (u) u.addEventListener('click', function () { if (window.YZRS.history) window.YZRS.history.undo(); });
+    if (r) r.addEventListener('click', function () { if (window.YZRS.history) window.YZRS.history.redo(); });
+  })();
+</script>
 </body>
 </html>

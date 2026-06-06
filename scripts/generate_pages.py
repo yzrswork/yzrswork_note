@@ -118,11 +118,44 @@ def _text_with_override(work, override, field):
     return work.get(field, "")
 
 
-def _style_attr(font_size):
-    """font_size が整数なら style="font-size:Npx" を返す。None なら空文字。"""
-    if font_size is None:
+def _num(v):
+    """数値を末尾の余分な 0 を落として文字列化する（line-height 等）。"""
+    f = float(v)
+    if f == int(f):
+        return str(int(f))
+    return ("%.3f" % f).rstrip("0").rstrip(".")
+
+
+def _class_style(css_class, override):
+    """1クラス分の inline style を組み立てる。
+    font_size[class]（px）と line_height[class]（無単位）をマージする。
+    どちらも無ければ空文字（＝stylesheet 既定にフォールバック）。
+    """
+    parts = []
+    fs = (override.get("font_size") or {}).get(css_class)
+    if fs is not None:
+        parts.append(f"font-size:{int(fs)}px")
+    lh = (override.get("line_height") or {}).get(css_class)
+    if lh is not None:
+        parts.append(f"line-height:{_num(lh)}")
+    if not parts:
         return ""
-    return f'style="font-size:{int(font_size)}px"'
+    return 'style="' + ";".join(parts) + '"'
+
+
+def _col_style(override):
+    """spacing.scale から col-left / col-right の gap・縦 padding を縮める inline style。
+    無ければ空文字（＝stylesheet 既定の gap:20px / padding:22px 24px 26px）。
+    """
+    sp = override.get("spacing") or {}
+    scale = sp.get("scale")
+    if scale is None:
+        return ""
+    s = float(scale)
+    gap = _num(round(20 * s, 2))
+    pt = _num(round(22 * s, 2))
+    pb = _num(round(26 * s, 2))
+    return f'style="gap:{gap}px;padding:{pt}px 24px {pb}px"'
 
 
 def build_context(work, override):
@@ -163,11 +196,10 @@ def build_context(work, override):
     # PHOTO
     photo_html = render_photo(work, override.get("photo"))
 
-    # font_size → STYLE プレースホルダ
-    fs = override.get("font_size") or {}
+    # font_size / line_height → STYLE プレースホルダ
     style_ctx = {}
     for css_class, ph_name in STYLE_TARGETS.items():
-        style_ctx[ph_name] = _style_attr(fs.get(css_class))
+        style_ctx[ph_name] = _class_style(css_class, override)
 
     # layout → BODY_STYLE
     layout = override.get("layout") or {}
@@ -197,6 +229,7 @@ def build_context(work, override):
         "PARTS":       parts,
         "WIRE":        wire,
         "BODY_STYLE":  body_style,
+        "COL_STYLE":   _col_style(override),
     }
     ctx.update(style_ctx)
     return ctx
