@@ -50,6 +50,7 @@ function setStatus(msg) {
 function markDirty() {
   state.dirty = true;
   dirtyFlag.hidden = false;
+  if (window.YZRS) window.YZRS._onChange();
 }
 function clearDirty() {
   state.dirty = false;
@@ -118,7 +119,15 @@ async function loadCardList() {
     opt.textContent = `${c.id} — ${c.title_en}${c.has_override ? ' ●' : ''}`;
     cardSelect.appendChild(opt);
   }
-  if (state.cards.length) await switchCard(state.cards[0].id);
+  if (state.cards.length) {
+    let startId = state.cards[0].id;
+    const sess = window.YZRS && window.YZRS.session;
+    if (sess) {
+      const restored = sess.restoreStartCard(state.cards);
+      if (restored) startId = restored;
+    }
+    await switchCard(startId);
+  }
 }
 
 async function switchCard(id) {
@@ -135,6 +144,7 @@ async function switchCard(id) {
   renderInspectorEmpty();
   iframe.src = `/output/yzrs-note-${id}-${state.data.title_en}.html?v=${Date.now()}`;
   cardSelect.value = id;
+  if (window.YZRS) window.YZRS._onCardSwitch(id);
 }
 
 cardSelect.addEventListener('change', (e) => switchCard(e.target.value));
@@ -193,14 +203,15 @@ iframe.addEventListener('load', () => {
 
   // プレビューモード適用
   applyPreviewMode();
+
+  // 機能モジュール（guides / overflow / heatmap…）へ通知
+  if (window.YZRS) window.YZRS._onIframeLoad(doc);
 });
 
 function wrapStars(host) {
   // 既存：★★★<span class="dim">★★</span> または既に個別 span 形式
   // 一旦 dom を平坦化して 5個の <span data-star-idx="N"> に書き直す
-  const arr = (state.override.stars && state.override.stars.length === 5)
-    ? state.override.stars
-    : state.merged.stars;
+  const arr = currentStars();
   host.innerHTML = arr.map((on, i) =>
     `<span data-star-idx="${i}" class="${on ? '' : 'dim'}">★</span>`
   ).join('');
@@ -357,7 +368,9 @@ function renderInspectorStars() {
 
 function currentStars() {
   if (state.override.stars && state.override.stars.length === 5) return state.override.stars.slice();
-  return state.merged.stars.slice();
+  // override が無ければ data の difficulty から再構成（undo で baseline に戻せるように）
+  const n = Math.max(0, Math.min(5, parseInt(state.data && state.data.difficulty, 10) || 0));
+  return [true, true, true, true, true].map((_, i) => i < n);
 }
 
 function toggleStar(idx) {
@@ -732,6 +745,92 @@ $('#crop-confirm').addEventListener('click', async () => {
     setStatus('アップロード失敗');
   }
 });
+
+// ─── override → iframe DOM 再適用（undo/redo 用） ─────────
+// 保存値ではなく in-memory の state.override を「最後にrebuildされたDOM」へ
+// 重ねて反映する。override が無いフィールドは data のベース値に戻す。
+function textToBr(s) {
+  return String(s).split('\n').map(escapeHtml).join('<br>');
+}
+function effectiveText(field) {
+  const t = state.override.text || {};
+  if (field in t) return t[field];
+  if (field === 'parts') return (state.data.parts || []).join(', ');
+  return state.data[field] != null ? state.data[field] : '';
+}
+function applyOverrideToDom(doc) {
+  doc = doc || iframe.contentDocument;
+  if (!doc || !doc.body) return;
+
+  // テキスト系
+  const titleEl = doc.querySelector('.header-title-jp');
+  if (titleEl) titleEl.textContent = `${effectiveText('title_en')} — e-photoframe series`;
+  const svals = doc.querySelectorAll('.s-val');
+  if (svals[0]) svals[0].textContent = effectiveText('type');
+  if (svals[1]) svals[1].textContent = effectiveText('rarity');
+  const concept = doc.querySelector('.concept-text');
+  if (concept) concept.innerHTML = textToBr(effectiveText('concept_jp'));
+  const memo = doc.querySelector('.memo-text');
+  if (memo) memo.innerHTML = textToBr(effectiveText('memo'));
+  const SPEC = ['size', 'mount', 'power', 'mcu', 'parts', 'wire'];
+  doc.querySelectorAll('.spec-val').forEach((el, i) => {
+    if (SPEC[i]) el.textContent = effectiveText(SPEC[i]);
+  });
+
+  // font-size（override に無いクラスはインラインを解除）
+  const FS_CLASSES = ['header-title-jp', 'concept-text', 'memo-text', 'spec-val', 's-val', 'stars-val'];
+  const fs = state.override.font_size || {};
+  FS_CLASSES.forEach((cls) => {
+    doc.querySelectorAll('.' + cls).forEach((el) => {
+      el.style.fontSize = (fs[cls] !== undefined) ? (fs[cls] + 'px') : '';
+    });
+  });
+
+  // layout
+  const body = doc.querySelector('.body');
+  if (body) {
+    const L = state.override.layout;
+    body.style.gridTemplateColumns = L ? `${L.left_fr}fr 1px ${L.right_fr}fr` : '';
+  }
+
+  // stars
+  const host = doc.querySelector('.stars-val');
+  if (host) wrapStars(host);
+
+  // photo
+  const box = doc.querySelector('.visual-box');
+  if (box) {
+    const p = state.override.photo;
+    const file = (p && p.file) ? p.file : (state.data.photo || null);
+    if (file) {
+      const fit = (p && p.object_fit) || 'cover';
+      const pos = (p && p.object_position) || '50% 50%';
+      box.innerHTML = `<img src="/photos/${file}" style="object-fit:${fit};object-position:${pos}" alt="">`;
+    } else {
+      box.innerHTML = '<span class="photo-placeholder">PHOTO HERE</span>';
+    }
+    box.setAttribute('data-editor-field', 'photo:photo');
+  }
+}
+
+// ─── YZRS ハブへ実体を登録（モジュール連携） ──────────────
+if (window.YZRS) {
+  window.YZRS.state = state;
+  window.YZRS.iframe = iframe;
+  window.YZRS.switchCard = switchCard;
+  window.YZRS.applyOverrideToDom = applyOverrideToDom;
+  window.YZRS.showDirty = markDirty;
+  window.YZRS.setFontSize = (cssClass, px) => {
+    applyFontSizeToClass(cssClass, px);
+    setFontSizeOverride(cssClass, px);
+  };
+  window.YZRS.clearSelection = () => {
+    state.selection = null;
+    renderInspectorEmpty();
+    const d = iframe.contentDocument;
+    if (d) d.querySelectorAll('.editor-selected').forEach((n) => n.classList.remove('editor-selected'));
+  };
+}
 
 // ─── 起動 ───────────────────────────────────────
 loadCardList().catch(e => setStatus('起動失敗: ' + e.message));
