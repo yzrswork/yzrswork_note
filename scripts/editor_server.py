@@ -158,6 +158,8 @@ def api_card_save(work_id):
         not (payload.get("text") or {})
         and not (payload.get("font_size") or {})
         and not (payload.get("line_height") or {})
+        and not (payload.get("text_style") or {})
+        and not (payload.get("transform") or {})
         and not (payload.get("spacing") or {})
         and not (payload.get("layout") or {})
         and not isinstance(payload.get("stars"), list)

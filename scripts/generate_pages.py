@@ -20,15 +20,26 @@ OVERRIDES_DIR = ROOT / "data" / "overrides"
 PHOTOS_DIR = ROOT / "photos"
 OUTPUT_DIR = ROOT / "output"
 
-# CSSクラス → font_size を反映する STYLE プレースホルダ名
-STYLE_TARGETS = {
-    "header-title-jp": "HEADER_TITLE_JP_STYLE",
-    "concept-text":    "CONCEPT_STYLE",
-    "memo-text":       "MEMO_STYLE",
-    "spec-val":        "SPEC_VAL_STYLE",
-    "s-val":           "S_VAL_STYLE",
-    "stars-val":       "STARS_VAL_STYLE",
-}
+# 編集対象要素 → (STYLEプレースホルダ名, CSSクラス, フィールド名)
+# クラス単位の override（font_size / line_height / text_style）と
+# フィールド単位の override（transform = 位置オフセット）を1つの style 属性に合成する。
+ELEMENT_STYLES = [
+    ("HEADER_TITLE_JP_STYLE", "header-title-jp", "title_en"),
+    ("TYPE_STYLE",            "s-val",           "type"),
+    ("RARITY_STYLE",          "s-val",           "rarity"),
+    ("STARS_VAL_STYLE",       "stars-val",       "stars"),
+    ("CONCEPT_STYLE",         "concept-text",    "concept_jp"),
+    ("MEMO_STYLE",            "memo-text",       "memo"),
+    ("SIZE_STYLE",            "spec-val",        "size"),
+    ("MOUNT_STYLE",           "spec-val",        "mount"),
+    ("POWER_STYLE",           "spec-val",        "power"),
+    ("MCU_STYLE",             "spec-val",        "mcu"),
+    ("PARTS_STYLE",           "spec-val",        "parts"),
+    ("WIRE_STYLE",            "spec-val",        "wire"),
+]
+
+# text_align で許可する値（不正値は黙って無視＝stylesheet 既定）
+TEXT_ALIGN_ALLOWED = ("left", "center", "right", "justify")
 
 # テキストオーバーライド対応：override.text[FIELD] → context KEY
 TEXT_FIELDS = {
@@ -86,6 +97,9 @@ def render_photo(work, override_photo=None):
         pos = override_photo.get("object_position", "50% 50%")
         alt = work.get("title_en", "")
         style = f'object-fit:{fit};object-position:{pos}'
+        scale = override_photo.get("scale")
+        if scale is not None and float(scale) != 1:
+            style += f';transform:scale({_num(scale)})'
         return f'<img src="../photos/{f}" alt="{alt}" style="{style}">'
     photo = work.get("photo")
     if photo:
@@ -126,10 +140,10 @@ def _num(v):
     return ("%.3f" % f).rstrip("0").rstrip(".")
 
 
-def _class_style(css_class, override):
-    """1クラス分の inline style を組み立てる。
-    font_size[class]（px）と line_height[class]（無単位）をマージする。
-    どちらも無ければ空文字（＝stylesheet 既定にフォールバック）。
+def _class_style_parts(css_class, override):
+    """1クラス分の inline style 宣言リストを組み立てる。
+    font_size[class]（px）/ line_height[class]（無単位）に加え、
+    text_style[class]（letter_spacing px / font_weight / text_align / color）をマージする。
     """
     parts = []
     fs = (override.get("font_size") or {}).get(css_class)
@@ -138,6 +152,31 @@ def _class_style(css_class, override):
     lh = (override.get("line_height") or {}).get(css_class)
     if lh is not None:
         parts.append(f"line-height:{_num(lh)}")
+    ts = (override.get("text_style") or {}).get(css_class) or {}
+    if ts.get("letter_spacing") is not None:
+        parts.append(f"letter-spacing:{_num(ts['letter_spacing'])}px")
+    if ts.get("font_weight") is not None:
+        parts.append(f"font-weight:{int(ts['font_weight'])}")
+    if ts.get("text_align") in TEXT_ALIGN_ALLOWED:
+        parts.append(f"text-align:{ts['text_align']}")
+    if ts.get("color"):
+        parts.append(f"color:{ts['color']}")
+    return parts
+
+
+def _transform_parts(field, override):
+    """フィールド単位の位置オフセット（transform.dx/dy px）。両方 0 なら無し。"""
+    tr = (override.get("transform") or {}).get(field) or {}
+    dx = tr.get("dx") or 0
+    dy = tr.get("dy") or 0
+    if dx or dy:
+        return [f"transform:translate({_num(dx)}px,{_num(dy)}px)"]
+    return []
+
+
+def _element_style(css_class, field, override):
+    """1要素分の style 属性（クラス単位 + フィールド単位の合成）。無ければ空文字。"""
+    parts = _class_style_parts(css_class, override) + _transform_parts(field, override)
     if not parts:
         return ""
     return 'style="' + ";".join(parts) + '"'
@@ -196,10 +235,10 @@ def build_context(work, override):
     # PHOTO
     photo_html = render_photo(work, override.get("photo"))
 
-    # font_size / line_height → STYLE プレースホルダ
+    # font_size / line_height / text_style / transform → 要素別 STYLE プレースホルダ
     style_ctx = {}
-    for css_class, ph_name in STYLE_TARGETS.items():
-        style_ctx[ph_name] = _class_style(css_class, override)
+    for ph_name, css_class, field in ELEMENT_STYLES:
+        style_ctx[ph_name] = _element_style(css_class, field, override)
 
     # layout → BODY_STYLE
     layout = override.get("layout") or {}

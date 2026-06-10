@@ -52,11 +52,18 @@
     const t = ov.text || {};
     Object.keys(t).forEach((field) => f2e(field).forEach((el) => el.classList.add('override-text')));
 
-    // font changed（override.font_size のキー = CSSクラス名）
-    const fs = ov.font_size || {};
-    Object.keys(fs).forEach((cls) => {
+    // font changed（font_size / line_height / text_style のキー = CSSクラス名）
+    const fontCls = {};
+    ['font_size', 'line_height', 'text_style'].forEach((slice) => {
+      Object.keys(ov[slice] || {}).forEach((cls) => { fontCls[cls] = true; });
+    });
+    Object.keys(fontCls).forEach((cls) => {
       doc.querySelectorAll('.' + cls).forEach((el) => el.classList.add('override-font'));
     });
+
+    // transform changed（フィールド単位の位置オフセット）→ layout チャネル
+    Object.keys(ov.transform || {}).forEach((field) =>
+      f2e(field).forEach((el) => el.classList.add('override-layout')));
 
     // layout changed
     if (ov.layout && Object.keys(ov.layout).length) {
