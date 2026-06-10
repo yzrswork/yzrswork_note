@@ -62,7 +62,9 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   overflow: auto;
   display: flex;
   align-items: flex-start;
-  justify-content: center;
+  /* センタリングは frame-stage の margin:auto で行う。
+     justify-content:center だと拡大時に左側がスクロール不能領域に消えるため。 */
+  justify-content: flex-start;
   padding: 24px;
 }
 #card-frame {
@@ -260,7 +262,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 }
 
 /* Task3: 印刷ガイド・オーバーレイ層 */
-.frame-stage { position: relative; display: inline-block; }
+.frame-stage { position: relative; display: inline-block; margin: 0 auto; }
 .editor-overlay-layer {
   position: absolute;
   left: 0; top: 0;
@@ -286,6 +288,71 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 .guide-cut > .guide-label   { color: #ff8a80; }
 .guide-safe > .guide-label  { color: #9ff5bd; }
 .guide-bleed > .guide-label { color: #9fd0ff; }
+
+/* ─────────────────────────────────────────────
+   Fine Editing v2 — ズーム / タイポグラフィ / 位置オフセット
+   ───────────────────────────────────────────── */
+
+/* ズームUI（ツールバー） */
+.tb-zoom .tb-btn { padding: 7px 10px; }
+.zoom-level {
+  font-size: 12px;
+  color: var(--text);
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 揃えボタン */
+.align-btns { display: flex; gap: 4px; flex: 1; }
+.align-btn {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.align-btn:hover { background: #3e3933; }
+.align-btn.active {
+  background: var(--accent);
+  border-color: var(--accent-2);
+  color: #fff;
+}
+
+/* 色スウォッチ */
+.color-swatches { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex: 1; }
+.swatch {
+  width: 22px; height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+.swatch.active { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+.swatch-pick {
+  width: 28px; height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  padding: 0 2px;
+  cursor: pointer;
+}
+.swatch-clear {
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.swatch-clear:hover { background: #3e3933; }
+
+/* 位置オフセット（nudge） */
+.ins-hint { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
 
 /* Task5: Lock System（Inspector内UI） */
 .lock-section .lock-btn { width: 100%; }

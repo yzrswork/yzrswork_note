@@ -5,15 +5,16 @@
  * iframe DOM / rendered HTML / 表示状態は一切参照しない（Invariant 1/2）。
  *
  * 削除する（baseline 等価/恒等デフォルトのみ）:
- *   - text.<field>  : override 値 === baselineText(field)
- *   - stars         : difficulty から再構成した baseline 配列と一致
- *   - photo         : file===baseline かつ fit/position が既定、かつ未知サブキー無し
- *   - spacing       : scale === 1（恒等＝無変化）
- *   - layout        : {left_fr:1, right_fr:1}（恒等＝_merged 既定）
+ *   - text.<field>      : override 値 === baselineText(field)
+ *   - stars             : difficulty から再構成した baseline 配列と一致
+ *   - photo             : file===baseline かつ fit/position/scale が既定、かつ未知サブキー無し
+ *   - spacing           : scale === 1（恒等＝無変化）
+ *   - layout            : {left_fr:1, right_fr:1}（恒等＝_merged 既定）
+ *   - transform.<field> : dx===0 かつ dy===0（恒等＝無変化）
  *
  * 絶対に削除しない:
  *   - locks（編集保護・履歴外・別スライス）
- *   - font_size / line_height（権威ある baseline を持たない＝Auto-Fit/手動の意図を保護）
+ *   - font_size / line_height / text_style（権威ある baseline を持たない＝Auto-Fit/手動の意図を保護）
  *   - 未知/将来キー（passthrough。既知の冗長キーだけを subtract する）
  *   - ロック中フィールドの override（locked = immutable。比較も削除もしない）
  *
@@ -25,7 +26,7 @@
  * 出力HTMLには一切痕跡を残さない（editor 専用の操作）。
  */
 (function () {
-  const PHOTO_KNOWN = ['file', 'object_fit', 'object_position'];
+  const PHOTO_KNOWN = ['file', 'object_fit', 'object_position', 'scale'];
 
   function st() { return window.YZRS.state; }
   function clampDifficulty(v) { return Math.max(0, Math.min(5, parseInt(v, 10) || 0)); }
@@ -68,10 +69,21 @@
       if (onlyKnown
         && (p.file || null) === (data.photo || null)
         && (p.object_fit || 'cover') === 'cover'
-        && (p.object_position || '50% 50%') === '50% 50%') {
+        && (p.object_position || '50% 50%') === '50% 50%'
+        && (p.scale == null || p.scale === 1)) {
         out.push({ path: 'photo', kind: 'photo' });
       }
     }
+
+    // transform.<field>（恒等 0,0。通常は setter が自動削除するが、外部編集された JSON に備える）
+    const tr = ov.transform || {};
+    Object.keys(tr).sort().forEach((field) => {
+      if (isLocked(field)) return;
+      const t = tr[field] || {};
+      if (!(t.dx || 0) && !(t.dy || 0)) {
+        out.push({ path: 'transform.' + field, kind: 'transform', field: field });
+      }
+    });
 
     // spacing（恒等）
     if (ov.spacing && ov.spacing.scale === 1 && !isLocked('layout')) {
@@ -89,14 +101,18 @@
   function applyRemovals(removals) {
     const ov = st().override;
     let textTouched = false;
+    let trTouched = false;
     removals.forEach((r) => {
       if (r.kind === 'text') {
         if (ov.text) { delete ov.text[r.field]; textTouched = true; }
+      } else if (r.kind === 'transform') {
+        if (ov.transform) { delete ov.transform[r.field]; trTouched = true; }
       } else {
         delete ov[r.kind];
       }
     });
     if (textTouched && ov.text && !Object.keys(ov.text).length) delete ov.text;
+    if (trTouched && ov.transform && !Object.keys(ov.transform).length) delete ov.transform;
 
     if (window.YZRS.showDirty) window.YZRS.showDirty();      // dirty 再計算 + onChange（履歴記録）
     if (window.YZRS.applyOverrideToDom) window.YZRS.applyOverrideToDom(); // baseline へ再projection

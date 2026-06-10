@@ -30,6 +30,13 @@
     <button id="btn-autofit" class="tb-btn tb-btn-light" title="A5に収まるよう本文を段階的に縮小（行間→余白→font）">Auto-Fit Page</button>
     <button id="btn-cleanup" class="tb-btn tb-btn-light" title="baselineと同一の冗長overrideを削除（undo可・保存で確定）">Cleanup</button>
   </div>
+  <div class="tb-group tb-zoom">
+    <button id="zoom-out" class="tb-btn tb-btn-light" title="縮小 (Ctrl+ホイール)">−</button>
+    <span id="zoom-level" class="zoom-level">100%</span>
+    <button id="zoom-in" class="tb-btn tb-btn-light" title="拡大 (Ctrl+ホイール)">＋</button>
+    <button id="zoom-fit" class="tb-btn tb-btn-light" title="カード全体を画面に合わせる">Fit</button>
+    <button id="zoom-100" class="tb-btn tb-btn-light" title="原寸表示">1:1</button>
+  </div>
   <div class="tb-group">
     <label class="tb-check" title="A5 印刷ガイド（SAFE / CUT / BLEED）">
       <input type="checkbox" id="toggle-guides"> Print Guides
@@ -91,6 +98,8 @@
 <script src="/editor/heatmap.js"></script>
 <script src="/editor/autofit.js"></script>
 <script src="/editor/cleanup.js"></script>
+<script src="/editor/nudge.js"></script>
+<script src="/editor/zoom.js"></script>
 <script>
   // ツールバーの Undo/Redo ボタン（ショートカットは history.js が担当）
   (function () {

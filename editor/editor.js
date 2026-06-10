@@ -36,6 +36,8 @@ function canonicalOverride(ov) {
   if (ov.text && Object.keys(ov.text).length) out.text = ov.text;
   if (ov.font_size && Object.keys(ov.font_size).length) out.font_size = ov.font_size;
   if (ov.line_height && Object.keys(ov.line_height).length) out.line_height = ov.line_height;
+  if (ov.text_style && Object.keys(ov.text_style).length) out.text_style = ov.text_style;
+  if (ov.transform && Object.keys(ov.transform).length) out.transform = ov.transform;
   if (ov.spacing && ov.spacing.scale != null) out.spacing = ov.spacing;
   if (ov.layout && Object.keys(ov.layout).length) out.layout = ov.layout;
   if (Array.isArray(ov.stars)) out.stars = ov.stars;
@@ -121,6 +123,41 @@ function setLineHeightOverride(cssClass, lh) {
 function setSpacingOverride(scale) {
   ensureOverride();
   state.override.spacing = { scale: scale };
+  markDirty();
+}
+// text_style[class] の1プロパティを書く。null/undefined/'' は削除（=stylesheet 既定）。
+function setTextStyleOverride(cssClass, prop, value) {
+  ensureOverride();
+  state.override.text_style ||= {};
+  const cur = state.override.text_style[cssClass] || {};
+  if (value === null || value === undefined || value === '') delete cur[prop];
+  else cur[prop] = value;
+  if (Object.keys(cur).length) state.override.text_style[cssClass] = cur;
+  else delete state.override.text_style[cssClass];
+  if (!Object.keys(state.override.text_style).length) delete state.override.text_style;
+  markDirty();
+}
+function clearTextStyleOverride(cssClass) {
+  if (state.override.text_style) {
+    delete state.override.text_style[cssClass];
+    if (!Object.keys(state.override.text_style).length) delete state.override.text_style;
+    markDirty();
+  }
+}
+function clearLineHeightOverride(cssClass) {
+  if (state.override.line_height) {
+    delete state.override.line_height[cssClass];
+    if (!Object.keys(state.override.line_height).length) delete state.override.line_height;
+    markDirty();
+  }
+}
+// フィールド単位の位置オフセット。dx=dy=0 は恒等なので削除（自己クリーニング）。
+function setTransformOverride(field, dx, dy) {
+  ensureOverride();
+  state.override.transform ||= {};
+  if (!dx && !dy) delete state.override.transform[field];
+  else state.override.transform[field] = { dx: dx, dy: dy };
+  if (!Object.keys(state.override.transform).length) delete state.override.transform;
   markDirty();
 }
 function setLayoutOverride(left, right) {
@@ -215,6 +252,9 @@ iframe.addEventListener('load', () => {
     }
     [data-star-idx] { cursor: pointer; }
     .col-divider { cursor: col-resize; }
+    /* 選択済みのテキスト/★要素はドラッグで移動できる（nudge.js） */
+    [data-editor-field^="text:"].editor-selected:not(.__locked__),
+    [data-editor-field^="stars:"].editor-selected:not(.__locked__) { cursor: move; }
   `;
   doc.head.appendChild(style);
 
@@ -272,6 +312,13 @@ function wrapStars(host) {
 
 // ─── クリック → 選択 ───────────────────────────
 function onIframeClick(ev) {
+  // 直前のドラッグ移動（nudge.js）由来の click は選択/★トグルとして扱わない
+  if (window.YZRS && window.YZRS._suppressNextClick) {
+    window.YZRS._suppressNextClick = false;
+    ev.preventDefault();
+    ev.stopPropagation();
+    return;
+  }
   if (state.previewMode) return;
   // 個別スタークリックはトグル
   const star = ev.target.closest('[data-star-idx]');
@@ -360,6 +407,9 @@ function renderInspectorText(sel) {
   // font-size セクション
   const fontSec = makeFontSizeSection(cssClass, sel.el);
   inspector.appendChild(fontSec);
+
+  // タイポグラフィ詳細（行間・字間・太さ・揃え・色）
+  inspector.appendChild(makeTypographySection(cssClass, sel.el));
 }
 
 function makeFontSizeSection(cssClass, sampleEl) {
@@ -393,6 +443,179 @@ function makeFontSizeSection(cssClass, sampleEl) {
   return sec;
 }
 
+// タイポグラフィ詳細セクション（Canva的な細密コントロール）
+// 行間は既存の line_height スライス、それ以外は text_style スライスに書く。
+const TEXT_COLOR_PALETTE = [
+  ['ink',    '#1c1a16'],
+  ['accent', '#b5451b'],
+  ['deep',   '#8e3514'],
+  ['muted',  '#6f675b'],
+  ['gray',   '#a39a8a'],
+];
+
+function makeTypographySection(cssClass, sampleEl) {
+  const sec = document.createElement('div');
+  sec.className = 'ins-section typo-section';
+  sec.innerHTML = `<div class="ins-title">タイポグラフィ — .${cssClass}</div>`;
+  const cs = iframe.contentWindow.getComputedStyle(sampleEl);
+  const ts = getTextStyle(cssClass);
+  // text_style の1プロパティ書込み + 即時反映
+  const upd = (prop, v) => {
+    setTextStyleOverride(cssClass, prop, v);
+    applyTextStyleToClass(cssClass, getTextStyle(cssClass));
+  };
+
+  // 行間（line_height スライス）
+  const lhOv = (state.override.line_height || {})[cssClass];
+  const lhComputed = (() => {
+    const lh = parseFloat(cs.lineHeight), fs = parseFloat(cs.fontSize);
+    return (isFinite(lh) && fs) ? Math.round(lh / fs * 100) / 100 : 1.5;
+  })();
+  const lhVal = (lhOv !== undefined) ? lhOv : lhComputed;
+  const lhRow = document.createElement('div');
+  lhRow.className = 'ins-row';
+  lhRow.innerHTML = `
+    <label>行間</label>
+    <input type="range" min="1.0" max="3.0" step="0.05" value="${lhVal}">
+    <input type="number" min="0.8" max="4" step="0.05" value="${lhVal}" style="max-width:64px">
+  `;
+  sec.appendChild(lhRow);
+  const lhRange = lhRow.querySelector('input[type="range"]');
+  const lhNum = lhRow.querySelector('input[type="number"]');
+  const lhSync = (v) => {
+    const n = Math.round(parseFloat(v) * 100) / 100;
+    if (!isFinite(n)) return;
+    lhRange.value = n; lhNum.value = n;
+    applyLineHeightToClass(cssClass, n);
+    setLineHeightOverride(cssClass, n);
+  };
+  lhRange.addEventListener('input', () => lhSync(lhRange.value));
+  lhNum.addEventListener('input', () => lhSync(lhNum.value));
+
+  // 字間（letter-spacing px）
+  const lsComputed = (() => {
+    const v = parseFloat(cs.letterSpacing);
+    return isFinite(v) ? Math.round(v * 10) / 10 : 0;
+  })();
+  const lsVal = (ts.letter_spacing != null) ? ts.letter_spacing : lsComputed;
+  const lsRow = document.createElement('div');
+  lsRow.className = 'ins-row';
+  lsRow.innerHTML = `
+    <label>字間</label>
+    <input type="range" min="-2" max="10" step="0.1" value="${lsVal}">
+    <input type="number" min="-5" max="20" step="0.1" value="${lsVal}" style="max-width:64px">
+  `;
+  sec.appendChild(lsRow);
+  const lsRange = lsRow.querySelector('input[type="range"]');
+  const lsNum = lsRow.querySelector('input[type="number"]');
+  const lsSync = (v) => {
+    const n = Math.round(parseFloat(v) * 10) / 10;
+    if (!isFinite(n)) return;
+    lsRange.value = n; lsNum.value = n;
+    upd('letter_spacing', n);
+  };
+  lsRange.addEventListener('input', () => lsSync(lsRange.value));
+  lsNum.addEventListener('input', () => lsSync(lsNum.value));
+
+  // 太さ
+  const fwRow = document.createElement('div');
+  fwRow.className = 'ins-row';
+  fwRow.innerHTML = `
+    <label>太さ</label>
+    <select>
+      <option value="">既定</option>
+      <option value="400">Regular 400</option>
+      <option value="500">Medium 500</option>
+      <option value="700">Bold 700</option>
+    </select>
+  `;
+  const fwSel = fwRow.querySelector('select');
+  fwSel.value = (ts.font_weight != null) ? String(ts.font_weight) : '';
+  fwSel.addEventListener('change', () => {
+    upd('font_weight', fwSel.value ? parseInt(fwSel.value, 10) : null);
+  });
+  sec.appendChild(fwRow);
+
+  // 揃え（同じボタン再クリックで解除）
+  const alRow = document.createElement('div');
+  alRow.className = 'ins-row';
+  alRow.innerHTML = `<label>揃え</label><div class="align-btns"></div>`;
+  const alHost = alRow.querySelector('.align-btns');
+  const ALIGNS = [['left', '左'], ['center', '中'], ['right', '右'], ['justify', '両端']];
+  const renderAligns = () => {
+    const cur = getTextStyle(cssClass).text_align || '';
+    alHost.innerHTML = '';
+    ALIGNS.forEach(([val, label]) => {
+      const b = document.createElement('button');
+      b.className = 'align-btn' + (cur === val ? ' active' : '');
+      b.textContent = label;
+      b.title = 'text-align: ' + val;
+      b.addEventListener('click', () => {
+        upd('text_align', cur === val ? null : val);
+        renderAligns();
+      });
+      alHost.appendChild(b);
+    });
+  };
+  renderAligns();
+  sec.appendChild(alRow);
+
+  // 色（パレット + 自由色 + 解除）
+  const clRow = document.createElement('div');
+  clRow.className = 'ins-row';
+  clRow.innerHTML = `<label>色</label><div class="color-swatches"></div>`;
+  const swHost = clRow.querySelector('.color-swatches');
+  const renderSwatches = () => {
+    const cur = (getTextStyle(cssClass).color || '').toLowerCase();
+    swHost.innerHTML = '';
+    TEXT_COLOR_PALETTE.forEach(([name, hex]) => {
+      const b = document.createElement('button');
+      b.className = 'swatch' + (cur === hex ? ' active' : '');
+      b.style.background = hex;
+      b.title = name + ' ' + hex;
+      b.addEventListener('click', () => {
+        upd('color', cur === hex ? null : hex);
+        renderSwatches();
+      });
+      swHost.appendChild(b);
+    });
+    const pick = document.createElement('input');
+    pick.type = 'color';
+    pick.className = 'swatch-pick';
+    pick.value = /^#[0-9a-f]{6}$/.test(cur) ? cur : '#1c1a16';
+    pick.title = '自由色';
+    pick.addEventListener('input', () => { upd('color', pick.value); renderSwatches(); });
+    swHost.appendChild(pick);
+    const off = document.createElement('button');
+    off.className = 'swatch-clear';
+    off.textContent = '解除';
+    off.title = '色 override を削除（stylesheet 既定に戻す）';
+    off.addEventListener('click', () => { upd('color', null); renderSwatches(); });
+    swHost.appendChild(off);
+  };
+  renderSwatches();
+  sec.appendChild(clRow);
+
+  // クラス単位リセット（text_style + line_height を既定へ）
+  const resetRow = document.createElement('div');
+  resetRow.className = 'ins-row';
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'tb-btn tb-btn-light typo-reset';
+  resetBtn.textContent = 'タイポグラフィをリセット';
+  resetBtn.title = 'このクラスの行間・字間・太さ・揃え・色 override を削除';
+  resetBtn.addEventListener('click', () => {
+    clearTextStyleOverride(cssClass);
+    clearLineHeightOverride(cssClass);
+    applyTextStyleToClass(cssClass, undefined);
+    applyLineHeightToClass(cssClass, null);
+    renderInspector();
+  });
+  resetRow.appendChild(resetBtn);
+  sec.appendChild(resetRow);
+
+  return sec;
+}
+
 function applyFontSizeToClass(cssClass, px) {
   const doc = iframe.contentDocument;
   doc.querySelectorAll('.' + cssClass).forEach(el => {
@@ -419,6 +642,32 @@ function applySpacing(scale) {
     }
   });
 }
+// text_style をクラス単位でインライン適用（styleObj 無し/プロパティ無しは解除）
+function applyTextStyleToClass(cssClass, styleObj) {
+  const doc = iframe.contentDocument;
+  if (!doc) return;
+  doc.querySelectorAll('.' + cssClass).forEach(el => {
+    el.style.letterSpacing = (styleObj && styleObj.letter_spacing != null) ? styleObj.letter_spacing + 'px' : '';
+    el.style.fontWeight = (styleObj && styleObj.font_weight != null) ? String(styleObj.font_weight) : '';
+    el.style.textAlign = (styleObj && styleObj.text_align) ? styleObj.text_align : '';
+    el.style.color = (styleObj && styleObj.color) ? styleObj.color : '';
+  });
+}
+// フィールド単位の位置オフセットを適用（0,0 は解除）
+function applyTransformToField(field, dx, dy) {
+  const doc = iframe.contentDocument;
+  if (!doc) return;
+  doc.querySelectorAll(`[data-editor-field$=":${field}"]`).forEach(el => {
+    el.style.transform = (dx || dy) ? `translate(${dx}px, ${dy}px)` : '';
+  });
+}
+function getTextStyle(cssClass) {
+  return (state.override.text_style || {})[cssClass] || {};
+}
+function getTransform(field) {
+  const t = (state.override.transform || {})[field];
+  return { dx: (t && t.dx) || 0, dy: (t && t.dy) || 0 };
+}
 
 // ★ Inspector
 function renderInspectorStars() {
@@ -440,6 +689,7 @@ function renderInspectorStars() {
 
   const host = iframe.contentDocument.querySelector('.stars-val');
   inspector.appendChild(makeFontSizeSection('stars-val', host));
+  inspector.appendChild(makeTypographySection('stars-val', host));
 }
 
 function currentStars() {
@@ -501,6 +751,29 @@ function renderInspectorPhoto() {
     };
     px.addEventListener('input', apply);
     py.addEventListener('input', apply);
+
+    // ズーム（フレーム内拡大。位置スライダと併用してトリミング位置を微調整）
+    const scaleVal = (photo.scale != null) ? photo.scale : 1;
+    const zSec = document.createElement('div');
+    zSec.className = 'ins-section';
+    zSec.innerHTML = `
+      <div class="ins-title">ズーム（フレーム内拡大）</div>
+      <div class="ins-row"><label>倍率</label>
+        <input type="range" id="photo-scale" min="1" max="3" step="0.05" value="${scaleVal}">
+        <span class="ins-val" id="photo-scale-v">×${Number(scaleVal).toFixed(2)}</span>
+      </div>
+    `;
+    inspector.appendChild(zSec);
+    const zr = zSec.querySelector('#photo-scale');
+    const zv = zSec.querySelector('#photo-scale-v');
+    zr.addEventListener('input', () => {
+      const v = Math.round(parseFloat(zr.value) * 100) / 100;
+      zv.textContent = '×' + v.toFixed(2);
+      setPhotoOverride({ scale: v });
+      if (v === 1 && state.override.photo) delete state.override.photo.scale; // 恒等は持たない
+      const img = iframe.contentDocument.querySelector('.visual-box img');
+      if (img) img.style.transform = (v !== 1) ? `scale(${v})` : '';
+    });
   }
 }
 
@@ -621,6 +894,11 @@ $('#btn-reset-field').addEventListener('click', () => {
     delete state.override.layout;
   } else if (sel.kind === 'photo') {
     delete state.override.photo;
+  }
+  // 位置オフセットもフィールド単位で削除
+  if (state.override.transform) {
+    delete state.override.transform[sel.field];
+    if (!Object.keys(state.override.transform).length) delete state.override.transform;
   }
   markDirty();
   setStatus('リセット（保存ボタンで確定）');
@@ -877,6 +1155,19 @@ function applyOverrideToDom(doc) {
     });
   });
 
+  // text_style（字間・太さ・揃え・色。無いクラスはインラインを解除）
+  const tsAll = state.override.text_style || {};
+  FS_CLASSES.forEach((cls) => applyTextStyleToClass(cls, tsAll[cls]));
+
+  // transform（フィールド単位の位置オフセット。無いフィールドは解除）
+  const TRANSFORM_FIELDS = ['title_en', 'type', 'rarity', 'stars', 'concept_jp', 'memo',
+    'size', 'mount', 'power', 'mcu', 'parts', 'wire'];
+  const trAll = state.override.transform || {};
+  TRANSFORM_FIELDS.forEach((f) => {
+    const t = trAll[f] || {};
+    applyTransformToField(f, t.dx || 0, t.dy || 0);
+  });
+
   // spacing（カラムの gap / padding。無ければ解除）
   const sp = state.override.spacing;
   doc.querySelectorAll('.col-left, .col-right').forEach((el) => {
@@ -909,7 +1200,8 @@ function applyOverrideToDom(doc) {
     if (file) {
       const fit = (p && p.object_fit) || 'cover';
       const pos = (p && p.object_position) || '50% 50%';
-      box.innerHTML = `<img src="/photos/${file}" style="object-fit:${fit};object-position:${pos}" alt="">`;
+      const sc = (p && p.scale && p.scale !== 1) ? `;transform:scale(${p.scale})` : '';
+      box.innerHTML = `<img src="/photos/${file}" style="object-fit:${fit};object-position:${pos}${sc}" alt="">`;
     } else {
       box.innerHTML = '<span class="photo-placeholder">PHOTO HERE</span>';
     }
@@ -945,6 +1237,20 @@ if (window.YZRS) {
     applyLayout(left, right);
     setLayoutOverride(left, right);
   };
+  // 位置オフセット（nudge.js が使う）。apply + write をセットで。
+  window.YZRS.setTransform = (field, dx, dy) => {
+    applyTransformToField(field, dx, dy);
+    setTransformOverride(field, dx, dy);
+  };
+  window.YZRS.getTransform = getTransform;
+  window.YZRS.applyTransformToField = applyTransformToField;
+  // タイポグラフィ（text_style）。プロパティ単位 write + クラス再適用。
+  window.YZRS.setTextStyle = (cssClass, prop, value) => {
+    setTextStyleOverride(cssClass, prop, value);
+    applyTextStyleToClass(cssClass, getTextStyle(cssClass));
+  };
+  // nudge.js のドラッグ直後 click を選択処理から除外するフラグ
+  window.YZRS._suppressNextClick = false;
   // field 名（data-editor-field の末尾）→ iframe 内要素。locks / heatmap が共用。
   window.YZRS.fieldToElements = (doc, field) => {
     doc = doc || iframe.contentDocument;
